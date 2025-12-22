@@ -25,7 +25,16 @@ app.get('/api/health', (req, res) => {
 });
 
 // Database connection
-connectDB();
+connectDB().then((conn) => {
+  if (conn) {
+    console.log('✅ Database connection established');
+  } else {
+    console.warn('⚠️  Database connection failed - server will continue but API calls may fail');
+    console.warn('   Please ensure MongoDB is running and restart the server');
+  }
+}).catch((error) => {
+  console.error('❌ Database connection error:', error.message);
+});
 
 // ============================================
 // API ROUTES

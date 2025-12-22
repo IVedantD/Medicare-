@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
+const { isValidEmail, isStrongPassword, isValidRole, isValidIndiaPhone, isValidIndiaPincode } = require('../utils/validators');
 
 /**
  * Register New User
@@ -7,13 +8,66 @@ const generateToken = require('../utils/generateToken');
  */
 const register = async (req, res) => {
   try {
+    // Check if MongoDB is connected
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      console.error('[REGISTER] MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(503).json({
+        success: false,
+        message: 'Database connection unavailable. Please ensure MongoDB is running and restart the server.'
+      });
+    }
+
     const { name, email, password, role, phone, specialization } = req.body;
 
-    // Validation
+    // Validation - Required fields
     if (!name || !email || !password || !role) {
       return res.status(400).json({
         success: false,
         message: 'Please provide name, email, password, and role'
+      });
+    }
+
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
+    // Validate role
+    if (!isValidRole(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be admin, doctor, or patient'
+      });
+    }
+
+    // Validate strong password
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters and contain uppercase, lowercase, number, and special character'
+      });
+    }
+
+    // Validate phone format if provided (India format) - make it more lenient
+    if (phone && phone.trim() !== '') {
+      // Allow empty phone, but if provided, validate format
+      if (!isValidIndiaPhone(phone)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number must be in format: +91 XXXXX XXXXX or 10 digits'
+        });
+      }
+    }
+
+    // Validate pincode format if provided (India format - 6 digits)
+    if (req.body.address?.pincode && !isValidIndiaPincode(req.body.address.pincode)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pincode must be 6 digits'
       });
     }
 
@@ -26,22 +80,6 @@ const register = async (req, res) => {
       });
     }
 
-    // Validate role
-    if (!['admin', 'doctor', 'patient'].includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid role. Must be admin, doctor, or patient'
-      });
-    }
-
-    // Validate password length
-    if (password.length < 6) {
-      return res.status(400).json({
-        success: false,
-        message: 'Password must be at least 6 characters'
-      });
-    }
-
     // For doctors, specialization is required
     if (role === 'doctor' && !specialization) {
       return res.status(400).json({
@@ -51,24 +89,55 @@ const register = async (req, res) => {
     }
 
     // Create user
+    console.log('[REGISTER] Creating user with data:', {
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      role,
+      phone: phone || '(empty)',
+      hasPassword: !!password,
+      passwordLength: password?.length
+    });
+
     const userData = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
       password,
       role,
-      phone: phone || '',
+      phone: phone ? phone.trim() : '',
       specialization: role === 'doctor' ? specialization : '',
-      verified: role === 'doctor' ? false : true // Doctors need admin verification
+      verified: role === 'doctor' ? false : true, // Doctors need admin verification
+      // India-specific address fields
+      address: {
+        street: req.body.address?.street || '',
+        city: req.body.address?.city || '',
+        state: req.body.address?.state || '',
+        pincode: req.body.address?.pincode || ''
+      }
     };
 
+    console.log('[REGISTER] Attempting to create user in database...');
+    console.log('[REGISTER] User data to save:', {
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      hasPassword: !!userData.password,
+      phone: userData.phone || '(empty)',
+      hasAddress: !!userData.address
+    });
+    
     const user = await User.create(userData);
+    
+    console.log('[REGISTER] ✅ User created successfully in MongoDB!');
+    console.log('[REGISTER] User ID:', user._id);
+    console.log('[REGISTER] User email:', user.email);
+    console.log('[REGISTER] User role:', user.role);
+    console.log('[REGISTER] User saved to database: medicare.users collection');
 
     // Generate token
     const token = generateToken(user._id);
 
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
+    // Update last login using findByIdAndUpdate to avoid triggering pre-save hook
+    await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
     res.status(201).json({
       success: true,
@@ -87,9 +156,49 @@ const register = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('[REGISTER] ❌ Registration error:', error);
+    console.error('[REGISTER] Error name:', error.name);
+    console.error('[REGISTER] Error message:', error.message);
+    console.error('[REGISTER] Error code:', error.code);
     
-    // Handle duplicate key error
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      console.error('[REGISTER] Validation errors:', validationErrors);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
+    }
+    
+    // Handle duplicate email error
+    if (error.code === 11000 || error.code === 11001) {
+      console.error('[REGISTER] Duplicate email error');
+      return res.status(400).json({
+        success: false,
+        message: 'Email already registered'
+      });
+    }
+    
+    // Handle other errors
+    console.error('[REGISTER] Full error stack:', error.stack);
+    
+    // Check if MongoDB connection issue
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      console.error('[REGISTER] MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(503).json({
+        success: false,
+        message: 'Database connection unavailable. Please ensure MongoDB is running and restart the server.'
+      });
+    }
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Registration failed. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -106,9 +215,44 @@ const register = async (req, res) => {
       });
     }
 
+    // Handle Mongoose connection errors
+    if (error.name === 'MongooseError' || error.message.includes('buffering timed out')) {
+      return res.status(503).json({
+        success: false,
+        message: 'Database connection error. Please ensure MongoDB is running.'
+      });
+    }
+
+    // Provide helpful error message based on error type
+    let userFriendlyMessage = 'Registration failed. Please try again.';
+    
+    // Check error message for specific issues
+    if (error.message && typeof error.message === 'string') {
+      const msg = error.message.toLowerCase();
+      if (msg.includes('password')) {
+        userFriendlyMessage = 'Password must be at least 8 characters and contain uppercase, lowercase, number, and special character.';
+      } else if (msg.includes('phone')) {
+        userFriendlyMessage = 'Phone number format is invalid. Use +91 XXXXX XXXXX format or leave empty.';
+      } else if (msg.includes('email')) {
+        userFriendlyMessage = 'Email validation failed. Please check your email format.';
+      } else if (msg.includes('validation')) {
+        userFriendlyMessage = `Validation error: ${error.message}`;
+      } else {
+        // In development, show actual error
+        if (process.env.NODE_ENV === 'development') {
+          userFriendlyMessage = `Registration failed: ${error.message}`;
+        }
+      }
+    }
+
     res.status(500).json({
       success: false,
-      message: 'Registration failed. Please try again.'
+      message: userFriendlyMessage,
+      error: process.env.NODE_ENV === 'development' ? {
+        name: error.name,
+        message: error.message,
+        code: error.code
+      } : undefined
     });
   }
 };
@@ -119,9 +263,19 @@ const register = async (req, res) => {
  */
 const login = async (req, res) => {
   try {
+    // Check if MongoDB is connected
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      console.error('[LOGIN] MongoDB not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(503).json({
+        success: false,
+        message: 'Database connection unavailable. Please ensure MongoDB is running and restart the server.'
+      });
+    }
+
     const { email, password } = req.body;
 
-    // Validation
+    // Validation - Required fields
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -129,10 +283,19 @@ const login = async (req, res) => {
       });
     }
 
+    // Validate email format
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address'
+      });
+    }
+
     // Find user and include password for comparison
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
 
     if (!user) {
+      console.log(`Login attempt failed: User not found for email: ${email.toLowerCase()}`);
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
@@ -141,6 +304,7 @@ const login = async (req, res) => {
 
     // Check if account is active
     if (!user.isActive) {
+      console.log(`Login attempt failed: Account inactive for email: ${email.toLowerCase()}`);
       return res.status(401).json({
         success: false,
         message: 'Account is inactive. Please contact administrator.'
@@ -148,21 +312,43 @@ const login = async (req, res) => {
     }
 
     // Compare password
+    console.log(`[LOGIN DEBUG] Attempting login for: ${email.toLowerCase()}`);
+    console.log(`[LOGIN DEBUG] User found: ${user.email}, Role: ${user.role}, Active: ${user.isActive}`);
+    console.log(`[LOGIN DEBUG] Password hash exists: ${!!user.password}`);
+    console.log(`[LOGIN DEBUG] Password hash length: ${user.password ? user.password.length : 0}`);
+    
     const isPasswordValid = await user.comparePassword(password);
+    
+    console.log(`[LOGIN DEBUG] Password comparison result: ${isPasswordValid}`);
 
     if (!isPasswordValid) {
+      console.log(`[LOGIN DEBUG] Login failed: Invalid password for email: ${email.toLowerCase()}`);
+      // Additional debugging: test direct bcrypt comparison
+      try {
+        const bcrypt = require('bcryptjs');
+        const directCompare = await bcrypt.compare(password, user.password);
+        console.log(`[LOGIN DEBUG] Direct bcrypt.compare result: ${directCompare}`);
+        if (directCompare !== isPasswordValid) {
+          console.log(`[LOGIN DEBUG] WARNING: comparePassword method differs from direct bcrypt.compare!`);
+        }
+      } catch (bcryptError) {
+        console.log(`[LOGIN DEBUG] Direct bcrypt comparison error: ${bcryptError.message}`);
+      }
+      
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password'
       });
     }
+    
+    console.log(`[LOGIN DEBUG] Login successful for: ${email.toLowerCase()}`);
 
     // Generate token
     const token = generateToken(user._id);
 
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
+    // Update last login using findByIdAndUpdate to avoid triggering pre-save hook
+    // This prevents any potential password re-hashing issues
+    await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
     res.json({
       success: true,

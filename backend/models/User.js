@@ -23,7 +23,7 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: [true, 'Please provide a password'],
-    minlength: [6, 'Password must be at least 6 characters'],
+    minlength: [8, 'Password must be at least 8 characters'],
     select: false // Don't return password by default
   },
   role: {
@@ -36,6 +36,36 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true,
     default: ''
+  },
+  // India-specific address fields
+  address: {
+    street: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    city: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    state: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    pincode: {
+      type: String,
+      trim: true,
+      default: '',
+      validate: {
+        validator: function(v) {
+          // Allow empty pincode, but if provided, must be 6 digits
+          return !v || /^\d{6}$/.test(v);
+        },
+        message: 'Pincode must be 6 digits'
+      }
+    }
   },
   avatar: {
     type: String,
@@ -80,24 +110,32 @@ const userSchema = new mongoose.Schema({
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+// Updated for Mongoose 9.x compatibility
+userSchema.pre('save', async function() {
   // Only hash password if it's been modified (or is new)
   if (!this.isModified('password')) {
-    return next();
+    return;
   }
 
   try {
     const salt = await bcrypt.genSalt(parseInt(process.env.BCRYPT_ROUNDS || 10));
     this.password = await bcrypt.hash(this.password, salt);
-    next();
   } catch (error) {
-    next(error);
+    throw error;
   }
 });
 
 // Method to compare password
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
+  if (!candidatePassword || !this.password) {
+    return false;
+  }
+  try {
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    console.error('Password comparison error:', error);
+    return false;
+  }
 };
 
 // Method to get user data without password (password is already excluded via select: false)
@@ -109,7 +147,7 @@ userSchema.methods.toSafeObject = function() {
 };
 
 // Indexes for better query performance
-userSchema.index({ email: 1 });
+// Note: email already has unique: true which creates an index automatically
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
 
