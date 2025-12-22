@@ -24,7 +24,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !user) {
+    // Add a small delay to ensure state is updated
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

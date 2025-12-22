@@ -3,43 +3,109 @@ import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/Loader';
 import { useAuth } from '@/context/AuthContext';
 import { ArrowLeft, Eye, EyeOff, Heart, Lock, Mail } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { validateEmail, validatePassword } from '@/utils/validation';
+import { cn } from '@/lib/utils';
 
 const LoginPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || '/';
 
+  // Real-time validation
+  useEffect(() => {
+    const newErrors: Record<string, string> = {};
+    
+    if (touched.email) {
+      const emailValidation = validateEmail(email);
+      if (!emailValidation.isValid) newErrors.email = emailValidation.message;
+    }
+    
+    if (touched.password) {
+      if (!password) {
+        newErrors.password = 'Password is required';
+      }
+    }
+    
+    setErrors(newErrors);
+  }, [email, password, touched]);
+
+  const isFormValid = () => {
+    const emailValid = validateEmail(email).isValid;
+    const passwordValid = !!password;
+    return emailValid && passwordValid;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!email || !password) {
-      toast.error('Please fill in all fields');
+    // Mark all fields as touched
+    setTouched({ email: true, password: true });
+    
+    if (!isFormValid()) {
+      toast.error('Please fix the errors in the form');
       return;
     }
 
     setIsLoading(true);
     try {
+      console.log('[LOGIN PAGE] Attempting login for:', email);
       await login(email, password);
+      console.log('[LOGIN PAGE] Login function completed successfully');
+      
       toast.success('Welcome back!');
       
-      // Get the user from localStorage to determine redirect
+      // Use a longer delay to ensure React state updates and API response is processed
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
       const storedUser = localStorage.getItem('clinic_user');
+      const storedToken = localStorage.getItem('clinic_token');
+      
+      console.log('[LOGIN PAGE] Checking localStorage...');
+      console.log('[LOGIN PAGE] Token exists:', !!storedToken);
+      console.log('[LOGIN PAGE] User exists:', !!storedUser);
+      
       if (storedUser) {
-        const user = JSON.parse(storedUser);
-        navigate(getDashboardPath(user.role));
+        try {
+          const user = JSON.parse(storedUser);
+          console.log('[LOGIN PAGE] Parsed user:', { email: user.email, role: user.role, id: user.id });
+          
+          if (user && user.role) {
+            const dashboardPath = getDashboardPath(user.role);
+            console.log('[LOGIN PAGE] Navigating to dashboard:', dashboardPath, 'for role:', user.role);
+            
+            // Use window.location for more reliable navigation
+            window.location.href = dashboardPath;
+          } else {
+            console.error('[LOGIN PAGE] Invalid user data in localStorage:', user);
+            toast.error('Invalid user data. Please try again.');
+          }
+        } catch (parseError) {
+          console.error('[LOGIN PAGE] Error parsing user data:', parseError);
+          toast.error('Error processing user data. Please try again.');
+        }
       } else {
-        navigate(from);
+        console.error('[LOGIN PAGE] No user data in localStorage after login');
+        console.error('[LOGIN PAGE] This means login did not complete successfully');
+        toast.error('Login failed. Please check your credentials.');
       }
     } catch (error: any) {
+      console.error('[LOGIN PAGE] Login error:', error);
+      console.error('[LOGIN PAGE] Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
       toast.error(error.message || 'Invalid credentials');
     } finally {
       setIsLoading(false);
@@ -113,11 +179,19 @@ const LoginPage: React.FC = () => {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setTouched({ ...touched, email: true });
+                  }}
+                  onBlur={() => setTouched({ ...touched, email: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-4 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.email ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
                   placeholder="Enter your email"
                 />
               </div>
+              {errors.email && <p className="mt-1 text-sm text-destructive">{errors.email}</p>}
             </div>
 
             <div>
@@ -129,8 +203,15 @@ const LoginPage: React.FC = () => {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full h-12 pl-11 pr-12 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setTouched({ ...touched, password: true });
+                  }}
+                  onBlur={() => setTouched({ ...touched, password: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-12 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.password ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
                   placeholder="Enter your password"
                 />
                 <button
@@ -141,6 +222,7 @@ const LoginPage: React.FC = () => {
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
+              {errors.password && <p className="mt-1 text-sm text-destructive">{errors.password}</p>}
             </div>
 
             <div className="flex items-center justify-between">
@@ -158,7 +240,7 @@ const LoginPage: React.FC = () => {
               variant="hero"
               size="xl"
               className="w-full"
-              disabled={isLoading}
+              disabled={isLoading || !isFormValid()}
             >
               {isLoading ? <Loader size="sm" /> : 'Sign In'}
             </Button>

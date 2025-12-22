@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth, UserRole } from '@/context/AuthContext';
 import { getDashboardPath } from '@/components/ProtectedRoute';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/Loader';
-import { Heart, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, Stethoscope } from 'lucide-react';
+import { Heart, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, Stethoscope, MapPin, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { 
+  validateEmail, 
+  validatePassword, 
+  validateName, 
+  validatePasswordConfirm,
+  validateIndiaPhone,
+  validateIndiaPincode,
+  formatIndiaPhone,
+  getPasswordStrength
+} from '@/utils/validation';
+import { INDIAN_STATES } from '@/utils/localization';
 
 const roles: { value: UserRole; label: string; icon: React.ElementType; desc: string }[] = [
   { value: 'patient', label: 'Patient', icon: User, desc: 'Book appointments & access records' },
@@ -37,29 +48,101 @@ const RegisterPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   
+  // India-specific address fields
+  const [street, setStreet] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [pincode, setPincode] = useState('');
+  
+  // Validation states
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  
   const { register } = useAuth();
   const navigate = useNavigate();
+  
+  // Password strength indicator
+  const passwordStrength = getPasswordStrength(password);
+
+  // Real-time validation
+  useEffect(() => {
+    const newErrors: Record<string, string> = {};
+    
+    if (touched.name) {
+      const nameValidation = validateName(name);
+      if (!nameValidation.isValid) newErrors.name = nameValidation.message;
+    }
+    
+    if (touched.email) {
+      const emailValidation = validateEmail(email);
+      if (!emailValidation.isValid) newErrors.email = emailValidation.message;
+    }
+    
+    if (touched.phone && phone) {
+      const phoneValidation = validateIndiaPhone(phone);
+      if (!phoneValidation.isValid) newErrors.phone = phoneValidation.message;
+    }
+    
+    if (touched.password) {
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.isValid) newErrors.password = passwordValidation.message;
+    }
+    
+    if (touched.confirmPassword) {
+      const confirmValidation = validatePasswordConfirm(password, confirmPassword);
+      if (!confirmValidation.isValid) newErrors.confirmPassword = confirmValidation.message;
+    }
+    
+    if (touched.pincode && pincode) {
+      const pincodeValidation = validateIndiaPincode(pincode);
+      if (!pincodeValidation.isValid) newErrors.pincode = pincodeValidation.message;
+    }
+    
+    setErrors(newErrors);
+  }, [name, email, phone, password, confirmPassword, pincode, touched]);
+
+  // Handle phone input formatting
+  const handlePhoneChange = (value: string) => {
+    // Remove all non-digit characters except +
+    const cleaned = value.replace(/[^\d+]/g, '');
+    // Auto-format to Indian format
+    if (cleaned.startsWith('+91') || cleaned.startsWith('91') || /^\d{10}$/.test(cleaned.replace(/\+91/g, '').replace(/91/g, ''))) {
+      const formatted = formatIndiaPhone(cleaned);
+      setPhone(formatted);
+    } else {
+      setPhone(cleaned);
+    }
+    setTouched({ ...touched, phone: true });
+  };
+
+  // Check if form is valid
+  const isFormValid = () => {
+    const nameValid = validateName(name).isValid;
+    const emailValid = validateEmail(email).isValid;
+    const passwordValid = validatePassword(password).isValid;
+    const confirmValid = validatePasswordConfirm(password, confirmPassword).isValid;
+    const phoneValid = !phone || validateIndiaPhone(phone).isValid;
+    const pincodeValid = !pincode || validateIndiaPincode(pincode).isValid;
+    const specializationValid = role !== 'doctor' || specialization;
+    
+    return nameValid && emailValid && passwordValid && confirmValid && phoneValid && pincodeValid && specializationValid;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!name || !email || !password || !confirmPassword) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      toast.error('Passwords do not match');
-      return;
-    }
-
-    if (password.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
-    }
-
-    if (role === 'doctor' && !specialization) {
-      toast.error('Please select your specialization');
+    // Mark all fields as touched
+    setTouched({
+      name: true,
+      email: true,
+      phone: true,
+      password: true,
+      confirmPassword: true,
+      pincode: true,
+    });
+    
+    if (!isFormValid()) {
+      toast.error('Please fix the errors in the form');
       return;
     }
 
@@ -70,13 +153,28 @@ const RegisterPage: React.FC = () => {
         email,
         password,
         role,
-        phone,
+        phone: phone || undefined,
         specialization: role === 'doctor' ? specialization : undefined,
+        address: (street || city || state || pincode) ? {
+          street: street || undefined,
+          city: city || undefined,
+          state: state || undefined,
+          pincode: pincode || undefined,
+        } : undefined,
       });
       toast.success('Account created successfully!');
-      navigate(getDashboardPath(role));
+      
+      // Use a small delay to ensure React state updates before navigation
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      const dashboardPath = getDashboardPath(role);
+      console.log('[REGISTER] Navigating to dashboard:', dashboardPath, 'for role:', role);
+      navigate(dashboardPath, { replace: true });
     } catch (error: any) {
-      toast.error(error.message || 'Registration failed');
+      console.error('[REGISTER] Registration error:', error);
+      const errorMessage = error.message || 'Registration failed';
+      console.error('[REGISTER] Error message:', errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -173,11 +271,19 @@ const RegisterPage: React.FC = () => {
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setTouched({ ...touched, name: true });
+                  }}
+                  onBlur={() => setTouched({ ...touched, name: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-4 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.name ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
                   placeholder={role === 'doctor' ? 'Dr. John Smith' : 'John Doe'}
                 />
               </div>
+              {errors.name && <p className="mt-1 text-sm text-destructive">{errors.name}</p>}
             </div>
 
             {/* Specialization for Doctors */}
@@ -209,11 +315,19 @@ const RegisterPage: React.FC = () => {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setTouched({ ...touched, email: true });
+                  }}
+                  onBlur={() => setTouched({ ...touched, email: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-4 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.email ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
                   placeholder="Enter your email"
                 />
               </div>
+              {errors.email && <p className="mt-1 text-sm text-destructive">{errors.email}</p>}
             </div>
 
             {/* Phone */}
@@ -226,11 +340,16 @@ const RegisterPage: React.FC = () => {
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="+1 (555) 123-4567"
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  onBlur={() => setTouched({ ...touched, phone: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-4 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.phone ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
+                  placeholder="+91 XXXXX XXXXX"
                 />
               </div>
+              {errors.phone && <p className="mt-1 text-sm text-destructive">{errors.phone}</p>}
             </div>
 
             {/* Password */}
@@ -243,8 +362,15 @@ const RegisterPage: React.FC = () => {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full h-12 pl-11 pr-12 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setTouched({ ...touched, password: true });
+                  }}
+                  onBlur={() => setTouched({ ...touched, password: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-12 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.password ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
                   placeholder="Create a password"
                 />
                 <button
@@ -255,6 +381,43 @@ const RegisterPage: React.FC = () => {
                   {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                 </button>
               </div>
+              {errors.password && <p className="mt-1 text-sm text-destructive">{errors.password}</p>}
+              {password && (
+                <div className="mt-2">
+                  <div className="flex gap-1 mb-2">
+                    {passwordStrength.requirements.map((req, idx) => (
+                      <div
+                        key={idx}
+                        className={cn(
+                          "h-1 flex-1 rounded",
+                          req.met ? "bg-green-500" : "bg-muted"
+                        )}
+                      />
+                    ))}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    <span className={cn(
+                      "font-medium",
+                      passwordStrength.strength === 'strong' && "text-green-600",
+                      passwordStrength.strength === 'medium' && "text-yellow-600",
+                      passwordStrength.strength === 'weak' && "text-red-600"
+                    )}>
+                      {passwordStrength.strength.charAt(0).toUpperCase() + passwordStrength.strength.slice(1)} password
+                    </span>
+                    <ul className="mt-1 space-y-0.5">
+                      {passwordStrength.requirements.map((req, idx) => (
+                        <li key={idx} className={cn(
+                          "flex items-center gap-1",
+                          req.met ? "text-green-600" : "text-muted-foreground"
+                        )}>
+                          <span>{req.met ? '✓' : '○'}</span>
+                          <span>{req.label}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Confirm Password */}
@@ -267,10 +430,101 @@ const RegisterPage: React.FC = () => {
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setTouched({ ...touched, confirmPassword: true });
+                  }}
+                  onBlur={() => setTouched({ ...touched, confirmPassword: true })}
+                  className={cn(
+                    "w-full h-12 pl-11 pr-4 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                    errors.confirmPassword ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                  )}
                   placeholder="Confirm your password"
                 />
+              </div>
+              {errors.confirmPassword && <p className="mt-1 text-sm text-destructive">{errors.confirmPassword}</p>}
+            </div>
+            
+            {/* India Address Fields */}
+            <div className="space-y-4 pt-2 border-t">
+              <h3 className="text-sm font-medium text-foreground">Address (Optional)</h3>
+              
+              {/* Street */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Street Address
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={street}
+                    onChange={(e) => setStreet(e.target.value)}
+                    className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="House/Flat No., Street"
+                  />
+                </div>
+              </div>
+              
+              {/* City */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  City
+                </label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full h-12 pl-11 pr-4 rounded-xl border border-input bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="City"
+                  />
+                </div>
+              </div>
+              
+              {/* State */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  State
+                </label>
+                <select
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="w-full h-12 px-4 rounded-xl border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  <option value="">Select state</option>
+                  {INDIAN_STATES.map((stateName) => (
+                    <option key={stateName} value={stateName}>{stateName}</option>
+                  ))}
+                </select>
+              </div>
+              
+              {/* Pincode */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Pincode
+                </label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={pincode}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setPincode(value);
+                      setTouched({ ...touched, pincode: true });
+                    }}
+                    onBlur={() => setTouched({ ...touched, pincode: true })}
+                    className={cn(
+                      "w-full h-12 pl-11 pr-4 rounded-xl border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2",
+                      errors.pincode ? "border-destructive focus:ring-destructive" : "border-input focus:ring-ring"
+                    )}
+                    placeholder="6-digit pincode"
+                    maxLength={6}
+                  />
+                </div>
+                {errors.pincode && <p className="mt-1 text-sm text-destructive">{errors.pincode}</p>}
               </div>
             </div>
 
@@ -290,7 +544,7 @@ const RegisterPage: React.FC = () => {
               variant="hero"
               size="xl"
               className="w-full"
-              disabled={isLoading}
+              disabled={isLoading || !isFormValid()}
             >
               {isLoading ? <Loader size="sm" /> : 'Create Account'}
             </Button>

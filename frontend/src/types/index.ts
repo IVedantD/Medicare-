@@ -82,6 +82,12 @@ export interface RegisterData {
   role: UserRole;
   phone?: string;
   specialization?: string;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+  };
 }
 
 export interface LoginData {

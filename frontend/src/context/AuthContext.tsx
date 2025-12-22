@@ -114,10 +114,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw new Error('Invalid user data from server');
       }
       
-      setUser(apiUser);
-      setToken(apiToken);
+      // Set state and localStorage synchronously
       localStorage.setItem('clinic_token', apiToken);
       localStorage.setItem('clinic_user', JSON.stringify(apiUser));
+      setToken(apiToken);
+      setUser(apiUser);
+      
+      // Log for debugging
+      console.log('[AUTH] Login successful:', { email: apiUser.email, role: apiUser.role, id: apiUser.id });
     } catch (apiError: any) {
       // Check if it's a network error, API unavailable, or user not found (401)
       const isNetworkError = apiError.code === 'ERR_NETWORK' || apiError.code === 'ECONNREFUSED' || !apiError.response;
@@ -143,10 +147,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const { password: _, ...userWithoutPassword } = foundUser;
         const mockToken = `mock_jwt_token_${Date.now()}`;
         
-        setUser(userWithoutPassword);
-        setToken(mockToken);
+        // Set state and localStorage synchronously
         localStorage.setItem('clinic_token', mockToken);
         localStorage.setItem('clinic_user', JSON.stringify(userWithoutPassword));
+        setToken(mockToken);
+        setUser(userWithoutPassword);
+        
+        // Log for debugging
+        console.log('[AUTH] Mock login successful:', { email: userWithoutPassword.email, role: userWithoutPassword.role });
       } else {
         // Real API error (other than user not found) - don't use mock, throw the error
         setIsLoading(false);
@@ -163,41 +171,102 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     
     try {
       // Try API call first, fallback to mock if API fails
+      console.log('[AUTH] Attempting registration for:', data.email);
       const response = await authAPI.register(data);
-      const { token: apiToken, user: apiUser } = response.data;
+      console.log('[AUTH] Registration API response:', response.data);
       
-      setUser(apiUser);
-      setToken(apiToken);
+      // Handle different response formats
+      let apiToken: string;
+      let apiUser: any;
+      
+      if (response.data.token && response.data.user) {
+        apiToken = response.data.token;
+        apiUser = response.data.user;
+      } else if (response.data.success && response.data.token && response.data.user) {
+        apiToken = response.data.token;
+        apiUser = response.data.user;
+      } else {
+        apiToken = response.data.token || `api_token_${Date.now()}`;
+        apiUser = response.data.user || response.data;
+      }
+      
+      // Ensure user has required fields and convert _id to id
+      if (apiUser._id && !apiUser.id) {
+        apiUser.id = apiUser._id.toString();
+        delete apiUser._id;
+      }
+      if (!apiUser.id) {
+        apiUser.id = apiUser.id || apiUser._id?.toString() || String(Date.now());
+      }
+      if (!apiUser.role) {
+        throw new Error('Invalid user data from server');
+      }
+      
+      // Set state and localStorage synchronously
       localStorage.setItem('clinic_token', apiToken);
       localStorage.setItem('clinic_user', JSON.stringify(apiUser));
+      setToken(apiToken);
+      setUser(apiUser);
+      
+      // Log for debugging
+      console.log('[AUTH] Registration successful:', { email: apiUser.email, role: apiUser.role, id: apiUser.id });
     } catch (apiError: any) {
-      // Fallback to mock registration for development
-      console.warn('API registration failed, using mock registration:', apiError.message);
+      // Log detailed error information
+      console.error('[AUTH] Registration API error:', {
+        message: apiError.message,
+        status: apiError.response?.status,
+        data: apiError.response?.data,
+        code: apiError.code
+      });
       
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Check if email exists
-      if (mockUsers.some(u => u.email === data.email)) {
+      // If it's a validation error (400) or server error (500), show the actual error message
+      // DO NOT fallback to mock - these are real errors that need to be fixed
+      if (apiError.response?.status === 400 || apiError.response?.status === 500 || apiError.response?.status === 503) {
+        const errorMessage = apiError.response?.data?.message || apiError.message || 'Registration failed';
+        console.error('[AUTH] Real API error (not using mock):', errorMessage);
         setIsLoading(false);
-        throw new Error('Email already registered');
+        throw new Error(errorMessage);
       }
-
-      const newUser: User = {
-        id: `${Date.now()}`,
-        email: data.email,
-        name: data.name,
-        role: data.role,
-        phone: data.phone,
-        specialization: data.specialization,
-        verified: data.role === 'doctor' ? false : undefined,
-      };
-
-      const mockToken = `mock_jwt_token_${Date.now()}`;
       
-      setUser(newUser);
-      setToken(mockToken);
-      localStorage.setItem('clinic_token', mockToken);
-      localStorage.setItem('clinic_user', JSON.stringify(newUser));
+      // Only fallback to mock for network errors (API unavailable)
+      const isNetworkError = apiError.code === 'ERR_NETWORK' || apiError.code === 'ECONNREFUSED' || !apiError.response;
+      if (isNetworkError) {
+        console.warn('[AUTH] Network error, using mock registration:', apiError.message);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check if email exists
+        if (mockUsers.some(u => u.email === data.email)) {
+          setIsLoading(false);
+          throw new Error('Email already registered');
+        }
+
+        const newUser: User = {
+          id: `${Date.now()}`,
+          email: data.email,
+          name: data.name,
+          role: data.role,
+          phone: data.phone,
+          specialization: data.specialization,
+          verified: data.role === 'doctor' ? false : undefined,
+        };
+
+        const mockToken = `mock_jwt_token_${Date.now()}`;
+        
+        // Set state and localStorage synchronously
+        localStorage.setItem('clinic_token', mockToken);
+        localStorage.setItem('clinic_user', JSON.stringify(newUser));
+        setToken(mockToken);
+        setUser(newUser);
+        
+        // Log for debugging
+        console.log('[AUTH] Mock registration successful:', { email: newUser.email, role: newUser.role });
+      } else {
+        // Other errors - don't use mock, throw the error
+        setIsLoading(false);
+        const errorMessage = apiError.response?.data?.message || apiError.message || 'Registration failed';
+        throw new Error(errorMessage);
+      }
     } finally {
       setIsLoading(false);
     }

@@ -60,6 +60,12 @@ export const authAPI = {
     role: string;
     phone?: string;
     specialization?: string;
+    address?: {
+      street?: string;
+      city?: string;
+      state?: string;
+      pincode?: string;
+    };
   }) => api.post('/auth/register', data),
   getProfile: () => api.get('/auth/profile'),
   updateProfile: (data: Partial<{
