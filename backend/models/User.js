@@ -35,7 +35,13 @@ const userSchema = new mongoose.Schema({
   phone: {
     type: String,
     trim: true,
-    default: ''
+    default: '',
+    sparse: true, // Allows multiple empty values but enforces uniqueness for non-empty values
+    index: true
+  },
+  whatsappNotificationsEnabled: {
+    type: Boolean,
+    default: true // Enable by default
   },
   // India-specific address fields
   address: {

@@ -82,7 +82,8 @@ export const doctorsAPI = {
   getById: (id: string) => api.get(`/doctors/${id}`),
   getAvailability: (id: string, date: string) => 
     api.get(`/doctors/${id}/availability`, { params: { date } }),
-  updateAvailability: (data: { slots: string[] }) => 
+  getCurrentAvailability: () => api.get('/doctors/availability/current'),
+  updateAvailability: (data: { schedule: Record<string, string[]> }) => 
     api.put('/doctors/availability', data),
   getPendingApproval: () => api.get('/doctors/pending'),
   approve: (id: string) => api.put(`/doctors/${id}/approve`),
@@ -101,10 +102,19 @@ export const appointmentsAPI = {
     api.get('/appointments/my', { params }),
   getDoctorAppointments: (params?: { status?: string; date?: string }) => 
     api.get('/appointments/doctor', { params }),
+  getAllAppointments: (params?: { 
+    status?: string; 
+    doctorId?: string; 
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => api.get('/appointments/admin/all', { params }),
   getById: (id: string) => api.get(`/appointments/${id}`),
   updateStatus: (id: string, status: 'approved' | 'rejected' | 'completed' | 'cancelled') => 
     api.put(`/appointments/${id}/status`, { status }),
   cancel: (id: string) => api.put(`/appointments/${id}/cancel`),
+  reschedule: (id: string, data: { date: string; time: string }) => 
+    api.put(`/appointments/${id}/reschedule`, data),
   addPrescription: (id: string, prescription: {
     diagnosis: string;
     medications: string[];
@@ -120,6 +130,18 @@ export const patientsAPI = {
   getMedicalHistory: (id: string) => api.get(`/patients/${id}/history`),
 };
 
+// Dashboard API - Role-based endpoints
+export const dashboardAPI = {
+  // Patient dashboard
+  getPatientDashboard: () => api.get('/patient/dashboard'),
+  
+  // Doctor dashboard
+  getDoctorDashboard: () => api.get('/doctor/dashboard'),
+  
+  // Admin dashboard
+  getAdminDashboard: () => api.get('/admin/dashboard'),
+};
+
 // Admin API
 export const adminAPI = {
   getDashboardStats: () => api.get('/admin/stats'),
@@ -128,6 +150,37 @@ export const adminAPI = {
   updateUserStatus: (id: string, status: 'active' | 'suspended') => 
     api.put(`/admin/users/${id}/status`, { status }),
   deleteUser: (id: string) => api.delete(`/admin/users/${id}`),
+
+  // Doctors moderation
+  getDoctors: (params?: { status?: 'pending' | 'approved' | 'blocked'; search?: string; page?: number; limit?: number }) =>
+    api.get('/admin/doctors', { params }),
+  approveDoctor: (id: string) => api.put(`/admin/doctors/${id}/approve`),
+  rejectDoctor: (id: string) => api.put(`/admin/doctors/${id}/reject`),
+  blockDoctor: (id: string) => api.put(`/admin/doctors/${id}/block`),
+  unblockDoctor: (id: string) => api.put(`/admin/doctors/${id}/unblock`),
+
+  // Patients moderation
+  getPatients: (params?: { search?: string; page?: number; limit?: number }) =>
+    api.get('/admin/patients', { params }),
+  blockPatient: (id: string) => api.put(`/admin/patients/${id}/block`),
+  unblockPatient: (id: string) => api.put(`/admin/patients/${id}/unblock`),
+
+  // Appointments monitoring (read-only)
+  getAdminAppointments: (params?: {
+    status?: string;
+    doctorId?: string;
+    patientId?: string;
+    date?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) => api.get('/admin/appointments', { params }),
+
+  // Audit Logs
+  getAuditLogs: (params?: { page?: number; limit?: number; adminId?: string; action?: string; targetType?: string; startDate?: string; endDate?: string }) =>
+    api.get('/admin/audit-logs', { params }),
 };
 
 // Medical Records API

@@ -17,6 +17,16 @@ const appointmentSchema = new mongoose.Schema({
     required: [true, 'Doctor ID is required'],
     index: true
   },
+  department: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  specialty: {
+    type: String,
+    trim: true,
+    default: ''
+  },
   date: {
     type: Date,
     required: [true, 'Appointment date is required'],
@@ -122,7 +132,8 @@ appointmentSchema.index({ status: 1, date: 1 });
 appointmentSchema.index({ date: 1, time: 1 });
 
 // Pre-save middleware to add status to history
-appointmentSchema.pre('save', function(next) {
+// Mongoose 9+ supports promise-based middleware; no need for next()
+appointmentSchema.pre('save', function() {
   if (this.isModified('status') && !this.isNew) {
     this.statusHistory.push({
       status: this.status,
@@ -130,7 +141,6 @@ appointmentSchema.pre('save', function(next) {
       changedAt: new Date()
     });
   }
-  next();
 });
 
 // Method to update status with history

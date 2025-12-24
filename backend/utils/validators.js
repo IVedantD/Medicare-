@@ -151,6 +151,23 @@ const formatIndiaPhone = (phone) => {
   return phone; // Return original if can't format
 };
 
+/**
+ * Normalize phone number to standard format for comparison
+ * Converts to +91XXXXXXXXXX format
+ */
+const normalizePhoneNumber = (phone) => {
+  if (!phone) return '';
+  // Remove all non-digit characters
+  const digits = phone.replace(/\D/g, '');
+  // If starts with 91, keep it; if 10 digits, add 91
+  if (digits.startsWith('91') && digits.length === 12) {
+    return `+${digits}`;
+  } else if (digits.length === 10) {
+    return `+91${digits}`;
+  }
+  return phone; // Return original if can't normalize
+};
+
 module.exports = {
   isValidEmail,
   isValidPhone,
@@ -162,6 +179,7 @@ module.exports = {
   getPasswordStrength,
   isValidRole,
   sanitizeString,
-  formatIndiaPhone
+  formatIndiaPhone,
+  normalizePhoneNumber
 };
 

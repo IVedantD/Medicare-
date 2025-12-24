@@ -5,6 +5,7 @@ import { Search, FileText, Calendar, AlertCircle } from 'lucide-react';
 import { usePatients } from '@/hooks/usePatients';
 import { DoctorCardSkeleton } from '@/components/LoadingSkeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from 'sonner';
 
 const DoctorPatientsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -90,11 +91,21 @@ const DoctorPatientsPage: React.FC = () => {
                 </div>
 
                 <div className="flex gap-2 mt-4 pt-4 border-t">
-                  <Button variant="outline" size="sm" className="flex-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => toast.info('Patient records view coming soon.')}
+                  >
                     <FileText className="h-4 w-4 mr-1" />
                     Records
                   </Button>
-                  <Button variant="default" size="sm" className="flex-1">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => toast.info('Scheduling from doctor portal coming soon. Patients can book from their portal.')}
+                  >
                     <Calendar className="h-4 w-4 mr-1" />
                     Schedule
                   </Button>

@@ -1,68 +1,103 @@
 const User = require('../models/User');
 const Appointment = require('../models/Appointment');
-const MedicalRecord = require('../models/MedicalRecord');
+const { successResponse, errorResponse, paginatedResponse } = require('../utils/responseHelpers');
+const AdminAuditService = require('../services/adminAuditService');
 
 /**
- * Get Dashboard Statistics
+ * Get Dashboard Statistics (Optimized with Aggregation)
  * GET /api/admin/stats
  * Requires authentication (admin role)
  */
 exports.getDashboardStats = async (req, res) => {
   try {
-    // Get counts
-    const totalPatients = await User.countDocuments({ role: 'patient', isActive: true });
-    const totalDoctors = await User.countDocuments({ role: 'doctor', isActive: true, verified: true });
-
-    // Get today's date
+    // Use aggregation pipeline for better performance
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Get today's appointments
-    const appointmentsToday = await Appointment.countDocuments({
-      date: {
-        $gte: today,
-        $lt: tomorrow
-      },
-      status: { $in: ['pending', 'approved'] }
-    });
-
-    // Get pending appointments
-    const pendingAppointments = await Appointment.countDocuments({
-      status: 'pending'
-    });
-
-    // Get completed appointments
-    const completedAppointments = await Appointment.countDocuments({
-      status: 'completed'
-    });
-
-    res.json({
+    // Parallel queries for better performance
+    const [
       totalPatients,
       totalDoctors,
+      totalUnverifiedDoctors,
       appointmentsToday,
       pendingAppointments,
       completedAppointments,
-      revenue: '0.00' // Placeholder - can be calculated from appointments later
+      pendingDoctorApprovals,
+      statsByStatus
+    ] = await Promise.all([
+      // Total active patients
+      User.countDocuments({ role: 'patient', isActive: true }),
+      
+      // Total verified active doctors
+      User.countDocuments({ role: 'doctor', isActive: true, verified: true }),
+      
+      // Pending doctor approvals
+      User.countDocuments({ role: 'doctor', isActive: true, verified: false }),
+      
+      // Today's appointments
+      Appointment.countDocuments({
+        date: { $gte: today, $lt: tomorrow },
+        status: { $in: ['pending', 'approved'] }
+      }),
+      
+      // Pending appointments
+      Appointment.countDocuments({ status: 'pending' }),
+      
+      // Completed appointments
+      Appointment.countDocuments({ status: 'completed' }),
+      
+      // Pending doctor approvals count
+      User.countDocuments({
+        role: 'doctor',
+        isActive: true,
+        verified: false
+      }),
+      
+      // Appointment stats by status (using aggregation)
+      Appointment.aggregate([
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 }
+          }
+        }
+      ])
+    ]);
+
+    // Format stats by status
+    const statusStats = {};
+    statsByStatus.forEach(stat => {
+      statusStats[stat._id] = stat.count;
     });
+
+    return successResponse(res, {
+      totalPatients,
+      totalDoctors,
+      totalUnverifiedDoctors,
+      appointmentsToday,
+      totalAppointments: pendingAppointments + completedAppointments + (statusStats.approved || 0) + (statusStats.cancelled || 0),
+      pendingAppointments,
+      completedAppointments,
+      pendingDoctorApprovals,
+      statusStats,
+      revenue: '0.00' // Placeholder
+    }, 'Dashboard statistics fetched successfully');
   } catch (error) {
-    console.error('Get dashboard stats error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch dashboard statistics'
-    });
+    console.error('[ADMIN] Get dashboard stats error:', error);
+    return errorResponse(res, 'Failed to fetch dashboard statistics', 500);
   }
 };
 
 /**
- * Get All Users
+ * Get All Users with pagination
  * GET /api/admin/users
  * Requires authentication (admin role)
  */
 exports.getAllUsers = async (req, res) => {
   try {
-    const { role, search } = req.query;
+    const { role, search, page = 1, limit = 20 } = req.query;
 
     const query = { isActive: true };
 
@@ -79,13 +114,21 @@ exports.getAllUsers = async (req, res) => {
       ];
     }
 
-    const users = await User.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 });
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select('-password')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      User.countDocuments(query)
+    ]);
 
     const formatted = users.map(user => ({
       id: user._id,
-      name: user.name,
+      name: user.name || user.email?.split('@')[0] || 'User',
       email: user.email,
       role: user.role,
       phone: user.phone || '',
@@ -98,18 +141,48 @@ exports.getAllUsers = async (req, res) => {
       lastLogin: user.lastLogin
     }));
 
-    res.json(formatted);
+    return paginatedResponse(res, formatted, {
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      totalPages: Math.ceil(total / parseInt(limit)),
+      hasNext: parseInt(page) * parseInt(limit) < total,
+      hasPrev: parseInt(page) > 1
+    }, 'Users fetched successfully');
   } catch (error) {
-    console.error('Get all users error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch users'
-    });
+    console.error('[ADMIN] Get all users error:', error);
+    return errorResponse(res, 'Failed to fetch users', 500);
   }
 };
 
 /**
- * Update User Status
+ * Get Audit Logs
+ * GET /api/admin/audit-logs
+ * Requires authentication (admin role)
+ */
+exports.getAuditLogs = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, adminId, action, targetType, startDate, endDate } = req.query;
+
+    const result = await AdminAuditService.getAuditLogs({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      adminId,
+      action,
+      targetType,
+      startDate,
+      endDate
+    });
+
+    return paginatedResponse(res, result.logs, result.pagination, 'Audit logs fetched successfully');
+  } catch (error) {
+    console.error('[ADMIN] Get audit logs error:', error);
+    return errorResponse(res, 'Failed to fetch audit logs', 500);
+  }
+};
+
+/**
+ * Update User Status (Soft action)
  * PUT /api/admin/users/:id/status
  * Requires authentication (admin role)
  */
@@ -118,18 +191,13 @@ exports.updateUserStatus = async (req, res) => {
     const { status } = req.body;
 
     if (!status || !['active', 'suspended'].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Status must be either "active" or "suspended"'
-      });
+      return errorResponse(res, 'Status must be either "active" or "suspended"', 400);
     }
 
     // Prevent admin from suspending themselves
-    if (req.params.id === req.user.id && status === 'suspended') {
-      return res.status(400).json({
-        success: false,
-        message: 'You cannot suspend your own account'
-      });
+    const adminId = req.user.id || req.user._id;
+    if (req.params.id.toString() === adminId.toString() && status === 'suspended') {
+      return errorResponse(res, 'You cannot suspend your own account', 403);
     }
 
     const user = await User.findByIdAndUpdate(
@@ -139,71 +207,83 @@ exports.updateUserStatus = async (req, res) => {
     ).select('-password');
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return errorResponse(res, 'User not found', 404);
     }
 
-    res.json({
-      success: true,
-      message: `User ${status === 'active' ? 'activated' : 'suspended'} successfully`,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive
-      }
+    // Log audit
+    await AdminAuditService.logAction({
+      adminId: adminId,
+      adminName: req.user.name || req.user.email?.split('@')[0] || 'Admin',
+      adminEmail: req.user.email,
+      action: 'user_status_changed',
+      targetType: 'user',
+      targetId: user._id,
+      targetName: user.name || user.email,
+      targetEmail: user.email,
+      previousState: { isActive: !user.isActive },
+      newState: { isActive: user.isActive },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '',
+      userAgent: req.headers['user-agent'] || '',
+      notes: `User status changed to ${status}`
     });
+
+    return successResponse(res, {
+      id: user._id,
+      name: user.name || user.email?.split('@')[0] || 'User',
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive
+    }, `User ${status === 'active' ? 'activated' : 'suspended'} successfully`);
   } catch (error) {
-    console.error('Update user status error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update user status'
-    });
+    console.error('[ADMIN] Update user status error:', error);
+    return errorResponse(res, 'Failed to update user status', 500);
   }
 };
 
 /**
- * Delete User
+ * Delete User (Soft delete)
  * DELETE /api/admin/users/:id
  * Requires authentication (admin role)
  */
 exports.deleteUser = async (req, res) => {
   try {
     // Prevent admin from deleting themselves
-    if (req.params.id === req.user.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'You cannot delete your own account'
-      });
+    const adminId = req.user.id || req.user._id;
+    if (req.params.id.toString() === adminId.toString()) {
+      return errorResponse(res, 'You cannot delete your own account', 403);
     }
 
     const user = await User.findById(req.params.id);
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return errorResponse(res, 'User not found', 404);
     }
 
     // Soft delete: Set isActive to false instead of actually deleting
-    // This preserves data integrity for appointments and records
+    const previousState = { isActive: user.isActive };
     user.isActive = false;
     await user.save();
 
-    res.json({
-      success: true,
-      message: 'User deleted successfully'
+    // Log audit
+    await AdminAuditService.logAction({
+      adminId: adminId,
+      adminName: req.user.name || req.user.email?.split('@')[0] || 'Admin',
+      adminEmail: req.user.email,
+      action: 'user_status_changed',
+      targetType: 'user',
+      targetId: user._id,
+      targetName: user.name || user.email,
+      targetEmail: user.email,
+      previousState,
+      newState: { isActive: false },
+      ipAddress: req.ip || req.headers['x-forwarded-for'] || '',
+      userAgent: req.headers['user-agent'] || '',
+      notes: 'User soft deleted (deactivated)'
     });
+
+    return successResponse(res, null, 'User deleted successfully (soft delete)');
   } catch (error) {
-    console.error('Delete user error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete user'
-    });
+    console.error('[ADMIN] Delete user error:', error);
+    return errorResponse(res, 'Failed to delete user', 500);
   }
 };
-

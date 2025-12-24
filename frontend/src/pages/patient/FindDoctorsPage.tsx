@@ -29,13 +29,17 @@ const FindDoctorsPage: React.FC = () => {
     search: searchQuery || undefined,
   });
 
+  // Note: Backend already filters by specialization and search
+  // Frontend filtering is kept for additional client-side filtering if needed
   const filteredDoctors = useMemo(() => {
     if (!doctors.length) return [];
     
+    // Additional client-side filtering (backend already does most filtering)
     return doctors.filter((doctor) => {
       const matchesSearch = !searchQuery || 
         doctor.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        doctor.specialization.toLowerCase().includes(searchQuery.toLowerCase());
+        doctor.specialization?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        doctor.department?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesSpecialization = selectedSpecialization === 'All' ||
         doctor.specialization === selectedSpecialization;
       return matchesSearch && matchesSpecialization;
@@ -88,7 +92,11 @@ const FindDoctorsPage: React.FC = () => {
         <Alert variant="destructive" className="mb-6">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Failed to load doctors. Please try again later.
+            Failed to load doctors. {error.message || 'Please try again later.'}
+            <br />
+            <span className="text-xs mt-1 block">
+              Make sure the backend server is running and doctors are registered.
+            </span>
           </AlertDescription>
         </Alert>
       )}
@@ -126,18 +134,29 @@ const FindDoctorsPage: React.FC = () => {
           </div>
 
           {filteredDoctors.length === 0 && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No doctors found matching your criteria</p>
-              <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => {
-                  setSearchQuery('');
-                  setSelectedSpecialization('All');
-                }}
-              >
-                Clear Filters
-              </Button>
+            <div className="text-center py-12 bg-card rounded-xl border p-8">
+              <p className="text-muted-foreground mb-2">
+                {doctors.length === 0 
+                  ? 'No doctors available at the moment'
+                  : 'No doctors found matching your criteria'}
+              </p>
+              {doctors.length === 0 && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  Please contact an administrator to add doctors to the system.
+                </p>
+              )}
+              {(searchQuery || selectedSpecialization !== 'All') && (
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedSpecialization('All');
+                  }}
+                >
+                  Clear Filters
+                </Button>
+              )}
             </div>
           )}
         </>

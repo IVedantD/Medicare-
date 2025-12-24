@@ -42,6 +42,7 @@ const BookAppointmentPage: React.FC = () => {
   const createAppointment = useCreateAppointment();
 
   const dates = generateDates();
+
   
   // Get available time slots from API or use default
   const availableTimeSlots = availability?.slots || timeSlots;
@@ -58,15 +59,25 @@ const BookAppointmentPage: React.FC = () => {
     }
 
     try {
-      await createAppointment.mutateAsync({
+      const result = await createAppointment.mutateAsync({
         doctorId,
         date: format(selectedDate, 'yyyy-MM-dd'),
         time: selectedTime,
         reason: reason.trim(),
       });
-      navigate('/patient/appointments');
-    } catch (error) {
-      // Error is handled by the mutation hook
+      
+      // Show success message
+      toast.success('Appointment booked successfully!');
+      
+      // Navigate after a short delay
+      setTimeout(() => {
+        navigate('/patient/appointments');
+      }, 500);
+    } catch (error: any) {
+      // Show error message
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to book appointment';
+      toast.error(errorMessage);
+      console.error('[BookAppointmentPage] Booking error:', error);
     }
   };
 

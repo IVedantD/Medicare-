@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
-const { isValidEmail, isStrongPassword, isValidRole, isValidIndiaPhone, isValidIndiaPincode } = require('../utils/validators');
+const { isValidEmail, isStrongPassword, isValidRole, isValidIndiaPhone, isValidIndiaPincode, normalizePhoneNumber } = require('../utils/validators');
+const { sendNotification } = require('../services/whatsapp.service');
 
 /**
  * Register New User
@@ -80,6 +81,21 @@ const register = async (req, res) => {
       });
     }
 
+    // Check if phone number already exists (if provided)
+    if (phone && phone.trim() !== '') {
+      const normalizedPhone = normalizePhoneNumber(phone);
+      const existingPhoneUser = await User.findOne({ 
+        phone: { $regex: new RegExp(normalizedPhone.replace(/[+]/g, '\\+'), 'i') }
+      });
+      
+      if (existingPhoneUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Phone number already registered. Please use a different phone number.'
+        });
+      }
+    }
+
     // For doctors, specialization is required
     if (role === 'doctor' && !specialization) {
       return res.status(400).json({
@@ -98,12 +114,20 @@ const register = async (req, res) => {
       passwordLength: password?.length
     });
 
+    // Format phone number to standard format
+    let formattedPhone = '';
+    if (phone && phone.trim() !== '') {
+      const normalized = normalizePhoneNumber(phone);
+      formattedPhone = normalized.startsWith('+91') ? normalized : `+91${normalized.replace(/^\+?91?/, '')}`;
+    }
+
     const userData = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
       password,
       role,
-      phone: phone ? phone.trim() : '',
+      phone: formattedPhone,
+      whatsappNotificationsEnabled: req.body.whatsappNotificationsEnabled !== false, // Default to true
       specialization: role === 'doctor' ? specialization : '',
       verified: role === 'doctor' ? false : true, // Doctors need admin verification
       // India-specific address fields
@@ -139,6 +163,15 @@ const register = async (req, res) => {
     // Update last login using findByIdAndUpdate to avoid triggering pre-save hook
     await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
+    // Send WhatsApp registration notification (non-blocking)
+    if (user.phone && user.whatsappNotificationsEnabled) {
+      sendNotification('registration', user.phone, [user.name, user.role], {
+        disabled: !user.whatsappNotificationsEnabled
+      }).catch(err => {
+        console.error('[REGISTER] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
+
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -149,6 +182,7 @@ const register = async (req, res) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
+        whatsappNotificationsEnabled: user.whatsappNotificationsEnabled,
         specialization: user.specialization,
         department: user.department,
         verified: user.verified,
@@ -350,6 +384,16 @@ const login = async (req, res) => {
     // This prevents any potential password re-hashing issues
     await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
 
+    // Send WhatsApp login alert (optional, non-blocking)
+    // Only send if enabled in environment and user has phone number
+    if (process.env.ENABLE_LOGIN_WHATSAPP_ALERTS === 'true' && user.phone && user.whatsappNotificationsEnabled) {
+      sendNotification('loginAlert', user.phone, [user.name, new Date()], {
+        disabled: !user.whatsappNotificationsEnabled
+      }).catch(err => {
+        console.error('[LOGIN] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
+
     res.json({
       success: true,
       message: 'Login successful',
@@ -360,6 +404,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
+        whatsappNotificationsEnabled: user.whatsappNotificationsEnabled,
         specialization: user.specialization,
         department: user.department,
         verified: user.verified,
@@ -401,6 +446,7 @@ const getProfile = async (req, res) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
+        whatsappNotificationsEnabled: user.whatsappNotificationsEnabled,
         specialization: user.specialization,
         department: user.department,
         verified: user.verified,
@@ -428,13 +474,22 @@ const getProfile = async (req, res) => {
  */
 const updateProfile = async (req, res) => {
   try {
-    const { name, phone, avatar, specialization, department, experience, bio } = req.body;
+    const { name, phone, avatar, specialization, department, experience, bio, whatsappNotificationsEnabled } = req.body;
 
     const updateData = {};
     
     if (name) updateData.name = name.trim();
-    if (phone !== undefined) updateData.phone = phone;
+    if (phone !== undefined) {
+      // Format phone number if provided
+      if (phone && phone.trim() !== '') {
+        const normalized = normalizePhoneNumber(phone);
+        updateData.phone = normalized.startsWith('+91') ? normalized : `+91${normalized.replace(/^\+?91?/, '')}`;
+      } else {
+        updateData.phone = '';
+      }
+    }
     if (avatar !== undefined) updateData.avatar = avatar;
+    if (whatsappNotificationsEnabled !== undefined) updateData.whatsappNotificationsEnabled = whatsappNotificationsEnabled;
     
     // Doctor-specific fields
     if (req.user.role === 'doctor') {
@@ -469,6 +524,7 @@ const updateProfile = async (req, res) => {
         email: user.email,
         role: user.role,
         phone: user.phone,
+        whatsappNotificationsEnabled: user.whatsappNotificationsEnabled,
         specialization: user.specialization,
         department: user.department,
         verified: user.verified,

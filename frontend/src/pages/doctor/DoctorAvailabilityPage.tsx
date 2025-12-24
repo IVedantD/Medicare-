@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Clock, Plus, X, Save } from 'lucide-react';
-import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { useCurrentAvailability, useUpdateAvailability } from '@/hooks/useDoctors';
 
 const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -13,19 +13,33 @@ const defaultTimeSlots = [
 ];
 
 const initialAvailability: Record<string, string[]> = {
-  Monday: ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '02:00 PM', '02:30 PM', '03:00 PM'],
-  Tuesday: ['09:00 AM', '10:00 AM', '11:00 AM', '02:00 PM', '03:00 PM', '04:00 PM'],
-  Wednesday: ['09:00 AM', '09:30 AM', '10:00 AM', '02:00 PM', '02:30 PM'],
-  Thursday: ['10:00 AM', '10:30 AM', '11:00 AM', '03:00 PM', '03:30 PM', '04:00 PM'],
-  Friday: ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM'],
+  Monday: [],
+  Tuesday: [],
+  Wednesday: [],
+  Thursday: [],
+  Friday: [],
   Saturday: [],
   Sunday: [],
 };
 
 const DoctorAvailabilityPage: React.FC = () => {
-  const [availability, setAvailability] = useState(initialAvailability);
+  const { data: savedAvailability, isLoading: isLoadingAvailability } = useCurrentAvailability();
+  const updateAvailability = useUpdateAvailability();
+  
+  const [availability, setAvailability] = useState<Record<string, string[]>>(initialAvailability);
   const [selectedDay, setSelectedDay] = useState('Monday');
-  const [isLoading, setIsLoading] = useState(false);
+
+  // Load saved availability when it's fetched
+  useEffect(() => {
+    if (savedAvailability && Object.keys(savedAvailability).length > 0) {
+      // Merge saved availability with initial structure to ensure all days exist
+      const merged: Record<string, string[]> = { ...initialAvailability };
+      weekDays.forEach(day => {
+        merged[day] = savedAvailability[day] || [];
+      });
+      setAvailability(merged);
+    }
+  }, [savedAvailability]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleSlot = (day: string, slot: string) => {
     setAvailability((prev) => {
@@ -39,10 +53,11 @@ const DoctorAvailabilityPage: React.FC = () => {
   };
 
   const handleSave = async () => {
-    setIsLoading(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    toast.success('Availability updated successfully!');
-    setIsLoading(false);
+    try {
+      await updateAvailability.mutateAsync({ schedule: availability });
+    } catch (error) {
+      // Error is handled by the mutation hook
+    }
   };
 
   const clearDay = (day: string) => {
@@ -167,10 +182,10 @@ const DoctorAvailabilityPage: React.FC = () => {
             <Button
               variant="hero"
               onClick={handleSave}
-              disabled={isLoading}
+              disabled={updateAvailability.isPending || isLoadingAvailability}
             >
               <Save className="h-4 w-4 mr-2" />
-              {isLoading ? 'Saving...' : 'Save Changes'}
+              {updateAvailability.isPending ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
         </div>

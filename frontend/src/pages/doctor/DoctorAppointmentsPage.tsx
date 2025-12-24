@@ -3,10 +3,20 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { AppointmentCard } from '@/components/ui/Cards';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Calendar, AlertCircle } from 'lucide-react';
+import { Calendar, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { useDoctorAppointments, useUpdateAppointmentStatus } from '@/hooks/useAppointments';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { format } from 'date-fns';
 
 const tabs = ['All', 'Pending', 'Approved', 'Completed'];
@@ -14,6 +24,8 @@ const tabs = ['All', 'Pending', 'Approved', 'Completed'];
 const DoctorAppointmentsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('All');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [actionDialogOpen, setActionDialogOpen] = useState(false);
+  const [selectedAction, setSelectedAction] = useState<{ id: string; action: string; appointment: any } | null>(null);
   const updateStatus = useUpdateAppointmentStatus();
   
   const { data: appointments = [], isLoading, error } = useDoctorAppointments({
@@ -32,9 +44,50 @@ const DoctorAppointmentsPage: React.FC = () => {
     }));
   }, [appointments]);
 
-  const handleAction = async (id: string, action: string) => {
-    const status = action === 'approve' ? 'approved' : 'rejected';
-    await updateStatus.mutateAsync({ id, status });
+  const handleAction = (id: string, action: string, appointment: any) => {
+    setSelectedAction({ id, action, appointment });
+    setActionDialogOpen(true);
+  };
+
+  const handleActionConfirm = async () => {
+    if (!selectedAction) return;
+    
+    let status: 'approved' | 'rejected' | 'completed' | 'cancelled';
+    if (selectedAction.action === 'approve') {
+      status = 'approved';
+    } else if (selectedAction.action === 'reject') {
+      status = 'rejected';
+    } else if (selectedAction.action === 'complete') {
+      status = 'completed';
+    } else {
+      return;
+    }
+
+    try {
+      await updateStatus.mutateAsync({ id: selectedAction.id, status });
+      setActionDialogOpen(false);
+      setSelectedAction(null);
+    } catch (error) {
+      // Error handled by hook
+    }
+  };
+
+  const getActionTitle = (action: string) => {
+    switch (action) {
+      case 'approve': return 'Approve Appointment';
+      case 'reject': return 'Reject Appointment';
+      case 'complete': return 'Mark as Completed';
+      default: return 'Update Appointment';
+    }
+  };
+
+  const getActionDescription = (action: string) => {
+    switch (action) {
+      case 'approve': return 'Are you sure you want to approve this appointment? The patient will be notified.';
+      case 'reject': return 'Are you sure you want to reject this appointment? The patient will be notified.';
+      case 'complete': return 'Mark this appointment as completed? This will finalize the appointment.';
+      default: return 'Are you sure you want to perform this action?';
+    }
   };
 
   return (
@@ -105,19 +158,63 @@ const DoctorAppointmentsPage: React.FC = () => {
       {!isLoading && !error && (
         <>
           <div className="space-y-4">
-            {filteredAppointments.map((apt) => (
-              <AppointmentCard
-                key={apt.id}
-                id={apt.id}
-                patientName={apt.patientName}
-                date={apt.date}
-                time={apt.time}
-                status={apt.status}
-                reason={apt.reason}
-                showActions={apt.status === 'pending'}
-                onAction={(action) => handleAction(apt.id, action)}
-              />
-            ))}
+            {filteredAppointments.map((apt) => {
+              const canApprove = apt.status === 'pending';
+              const canReject = apt.status === 'pending';
+              const canComplete = apt.status === 'approved';
+              
+              return (
+                <div key={apt.id} className="bg-card rounded-xl border p-6">
+                  <AppointmentCard
+                    id={apt.id}
+                    patientName={apt.patientName}
+                    date={apt.date}
+                    time={apt.time}
+                    status={apt.status}
+                    reason={apt.reason}
+                  />
+                  
+                  {/* Action Buttons */}
+                  {(canApprove || canReject || canComplete) && (
+                    <div className="flex gap-2 mt-4 pt-4 border-t">
+                      {canApprove && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleAction(apt.id, 'approve', apt)}
+                          disabled={updateStatus.isPending}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Approve
+                        </Button>
+                      )}
+                      {canReject && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => handleAction(apt.id, 'reject', apt)}
+                          disabled={updateStatus.isPending}
+                        >
+                          <X className="h-4 w-4 mr-2" />
+                          Reject
+                        </Button>
+                      )}
+                      {canComplete && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleAction(apt.id, 'complete', apt)}
+                          disabled={updateStatus.isPending}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Mark Complete
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {filteredAppointments.length === 0 && (
@@ -127,6 +224,47 @@ const DoctorAppointmentsPage: React.FC = () => {
           )}
         </>
       )}
+
+      {/* Action Confirmation Dialog */}
+      <AlertDialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {selectedAction ? getActionTitle(selectedAction.action) : 'Confirm Action'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedAction ? getActionDescription(selectedAction.action) : ''}
+              {selectedAction && (
+                <div className="mt-2 p-3 bg-muted rounded-lg">
+                  <p className="text-sm font-medium">Appointment Details:</p>
+                  <p className="text-sm text-muted-foreground">
+                    Patient: {selectedAction.appointment.patientName}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Date: {selectedAction.appointment.date}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Time: {selectedAction.appointment.time}
+                  </p>
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleActionConfirm}
+              className={
+                selectedAction?.action === 'reject' || selectedAction?.action === 'complete'
+                  ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                  : ''
+              }
+            >
+              {updateStatus.isPending ? 'Processing...' : 'Confirm'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 };

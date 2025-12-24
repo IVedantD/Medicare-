@@ -9,6 +9,7 @@ export interface User {
   role: UserRole;
   avatar?: string;
   phone?: string;
+  whatsappNotificationsEnabled?: boolean;
   specialization?: string;
   department?: string;
   verified?: boolean;
@@ -81,6 +82,7 @@ export interface RegisterData {
   name: string;
   role: UserRole;
   phone?: string;
+  whatsappNotificationsEnabled?: boolean;
   specialization?: string;
   address?: {
     street?: string;

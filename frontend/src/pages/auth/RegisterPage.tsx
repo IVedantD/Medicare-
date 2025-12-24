@@ -4,7 +4,7 @@ import { useAuth, UserRole } from '@/context/AuthContext';
 import { getDashboardPath } from '@/components/ProtectedRoute';
 import { Button } from '@/components/ui/button';
 import { Loader } from '@/components/ui/Loader';
-import { Heart, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, Stethoscope, MapPin, Building2 } from 'lucide-react';
+import { Heart, Mail, Lock, Eye, EyeOff, User, Phone, ArrowLeft, Stethoscope, MapPin, Building2, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { 
@@ -46,6 +46,7 @@ const RegisterPage: React.FC = () => {
   const [role, setRole] = useState<UserRole>('patient');
   const [specialization, setSpecialization] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [whatsappNotificationsEnabled, setWhatsappNotificationsEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   
   // India-specific address fields
@@ -154,6 +155,7 @@ const RegisterPage: React.FC = () => {
         password,
         role,
         phone: phone || undefined,
+        whatsappNotificationsEnabled: phone ? whatsappNotificationsEnabled : undefined,
         specialization: role === 'doctor' ? specialization : undefined,
         address: (street || city || state || pincode) ? {
           street: street || undefined,
@@ -350,7 +352,36 @@ const RegisterPage: React.FC = () => {
                 />
               </div>
               {errors.phone && <p className="mt-1 text-sm text-destructive">{errors.phone}</p>}
+              <p className="mt-1 text-xs text-muted-foreground">
+                Enter your WhatsApp number to receive appointment notifications
+              </p>
             </div>
+
+            {/* WhatsApp Notifications Toggle */}
+            {phone && (
+              <div className="flex items-center justify-between p-4 rounded-xl border border-input bg-card">
+                <div className="flex items-center gap-3">
+                  <MessageCircle className="h-5 w-5 text-primary" />
+                  <div>
+                    <label className="text-sm font-medium text-foreground">
+                      WhatsApp Notifications
+                    </label>
+                    <p className="text-xs text-muted-foreground">
+                      Receive appointment reminders and updates via WhatsApp
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={whatsappNotificationsEnabled}
+                    onChange={(e) => setWhatsappNotificationsEnabled(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-ring rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                </label>
+              </div>
+            )}
 
             {/* Password */}
             <div>

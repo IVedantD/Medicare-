@@ -28,6 +28,14 @@ app.get('/api/health', (req, res) => {
 connectDB().then((conn) => {
   if (conn) {
     console.log('✅ Database connection established');
+    
+    // Start appointment reminder scheduler
+    if (process.env.ENABLE_APPOINTMENT_REMINDERS !== 'false') {
+      const { startReminderScheduler } = require('./services/appointmentReminder.service');
+      startReminderScheduler();
+    } else {
+      console.log('ℹ️  Appointment reminders disabled (ENABLE_APPOINTMENT_REMINDERS=false)');
+    }
   } else {
     console.warn('⚠️  Database connection failed - server will continue but API calls may fail');
     console.warn('   Please ensure MongoDB is running and restart the server');
@@ -43,20 +51,22 @@ connectDB().then((conn) => {
 // Step 1: Authentication routes
 app.use('/api/auth', require('./routes/auth'));
 
-// Step 2: Doctors routes
+// Step 2: Role-based dashboard routes (must be before other routes for proper protection)
+app.use('/api/patient', require('./routes/patient'));
+app.use('/api/doctor', require('./routes/doctor'));
+app.use('/api/admin', require('./routes/admin'));
+
+// Step 3: Doctors routes
 app.use('/api/doctors', require('./routes/doctors'));
 
-// Step 3: Appointments routes
+// Step 4: Appointments routes
 app.use('/api/appointments', require('./routes/appointments'));
 
-// Step 4: Patients routes
+// Step 5: Patients routes
 app.use('/api/patients', require('./routes/patients'));
 
-// Step 5: Medical Records routes
+// Step 6: Medical Records routes
 app.use('/api/medical-records', require('./routes/medicalRecords'));
-
-// Step 6: Admin routes
-app.use('/api/admin', require('./routes/admin'));
 
 // Error handling middleware (must be after all routes)
 const { errorHandler } = require('./middleware/errorHandler');

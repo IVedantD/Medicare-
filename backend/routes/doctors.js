@@ -3,6 +3,7 @@ const {
   getAllDoctors,
   getDoctorById,
   getDoctorAvailability,
+  getCurrentAvailability,
   updateAvailability,
   getPendingApprovals,
   approveDoctor,
@@ -18,6 +19,7 @@ router.get('/:id', getDoctorById);
 router.get('/:id/availability', getDoctorAvailability);
 
 // Doctor routes (authenticated)
+router.get('/availability/current', isAuthenticated, authorizeRoles('doctor'), getCurrentAvailability);
 router.put('/availability', isAuthenticated, authorizeRoles('doctor'), updateAvailability);
 
 // Admin routes

@@ -64,6 +64,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           parsedUser.id = parsedUser._id.toString();
           delete parsedUser._id;
         }
+        // Ensure user has a name (fallback to email or 'User')
+        if (!parsedUser.name) {
+          parsedUser.name = parsedUser.email?.split('@')[0] || 'User';
+        }
         setToken(storedToken);
         setUser(parsedUser);
       } catch (error) {
@@ -112,6 +116,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       if (!apiUser.role) {
         throw new Error('Invalid user data from server');
+      }
+      // Ensure user has a name (fallback to email or 'User')
+      if (!apiUser.name) {
+        apiUser.name = apiUser.email?.split('@')[0] || 'User';
       }
       
       // Set state and localStorage synchronously

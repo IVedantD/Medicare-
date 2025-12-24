@@ -12,6 +12,7 @@ import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import NotFound from "./pages/NotFound";
+import Unauthorized from "./pages/Unauthorized";
 
 // Patient Pages
 import PatientDashboard from "./pages/patient/PatientDashboard";
@@ -30,6 +31,10 @@ import DoctorProfilePage from "./pages/doctor/DoctorProfilePage";
 
 // Admin Pages
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminDoctorsPage from "./pages/admin/AdminDoctorsPage";
+import AdminPatientsPage from "./pages/admin/AdminPatientsPage";
+import AdminAppointmentsPage from "./pages/admin/AdminAppointmentsPage";
+import AdminActivityPage from "./pages/admin/AdminActivityPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +61,7 @@ const App = () => {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+            <Route path="/unauthorized" element={<Unauthorized />} />
 
             {/* Patient Routes */}
             <Route path="/patient/dashboard" element={<ProtectedRoute allowedRoles={['patient']}><PatientDashboard /></ProtectedRoute>} />
@@ -74,9 +80,10 @@ const App = () => {
 
             {/* Admin Routes */}
             <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
-            <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
-            <Route path="/admin/doctors" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
-            <Route path="/admin/appointments" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><AdminPatientsPage /></ProtectedRoute>} />
+            <Route path="/admin/doctors" element={<ProtectedRoute allowedRoles={['admin']}><AdminDoctorsPage /></ProtectedRoute>} />
+            <Route path="/admin/appointments" element={<ProtectedRoute allowedRoles={['admin']}><AdminAppointmentsPage /></ProtectedRoute>} />
+            <Route path="/admin/activity" element={<ProtectedRoute allowedRoles={['admin']}><AdminActivityPage /></ProtectedRoute>} />
             <Route path="/admin/analytics" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
 
                 <Route path="*" element={<NotFound />} />

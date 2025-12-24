@@ -3,6 +3,7 @@ import { adminAPI } from '@/services/api';
 import { DashboardStats, User } from '@/types';
 import { toast } from 'sonner';
 
+// ----- Stats -----
 export const useDashboardStats = () => {
   return useQuery({
     queryKey: ['admin', 'stats'],
@@ -70,6 +71,178 @@ export const useAllUsers = (params?: { role?: string; search?: string }) => {
   });
 };
 
+// ----- Doctors moderation -----
+export const useAdminDoctors = (params?: { status?: 'pending' | 'approved' | 'blocked'; search?: string; page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'doctors', params],
+    queryFn: async () => {
+      const response = await adminAPI.getDoctors(params);
+      // Handle paginated response
+      if (response.data.data && Array.isArray(response.data.data)) {
+        return {
+          doctors: response.data.data,
+          pagination: response.data.pagination
+        };
+      }
+      // Handle legacy response format
+      return {
+        doctors: response.data.doctors || response.data || [],
+        pagination: null
+      };
+    },
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  });
+};
+
+export const useApproveDoctor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await adminAPI.approveDoctor(id);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'doctors'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      toast.success('Doctor approved');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to approve doctor');
+    },
+  });
+};
+
+export const useRejectDoctor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await adminAPI.rejectDoctor(id);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'doctors'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
+      toast.success('Doctor rejected');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to reject doctor');
+    },
+  });
+};
+
+export const useBlockDoctor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await adminAPI.blockDoctor(id);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'doctors'] });
+      toast.success('Doctor blocked');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to block doctor');
+    },
+  });
+};
+
+export const useUnblockDoctor = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await adminAPI.unblockDoctor(id);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'doctors'] });
+      toast.success('Doctor unblocked');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to unblock doctor');
+    },
+  });
+};
+
+// ----- Patients moderation -----
+export const useAdminPatients = (params?: { search?: string; page?: number; limit?: number }) => {
+  return useQuery({
+    queryKey: ['admin', 'patients', params],
+    queryFn: async () => {
+      const response = await adminAPI.getPatients(params);
+      // Handle paginated response
+      if (response.data.data && Array.isArray(response.data.data)) {
+        return {
+          patients: response.data.data,
+          pagination: response.data.pagination
+        };
+      }
+      // Handle legacy response format
+      return {
+        patients: response.data.patients || response.data || [],
+        pagination: null
+      };
+    },
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  });
+};
+
+export const useBlockPatient = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await adminAPI.blockPatient(id);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'patients'] });
+      toast.success('Patient blocked');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to block patient');
+    },
+  });
+};
+
+export const useUnblockPatient = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await adminAPI.unblockPatient(id);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'patients'] });
+      toast.success('Patient unblocked');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to unblock patient');
+    },
+  });
+};
+
+// ----- Admin appointments (read-only) -----
+export const useAdminAppointments = (params?: {
+  status?: string;
+  doctorId?: string;
+  patientId?: string;
+  date?: string;
+  startDate?: string;
+  endDate?: string;
+}) => {
+  return useQuery({
+    queryKey: ['admin', 'appointments', params],
+    queryFn: async () => {
+      const response = await adminAPI.getAdminAppointments(params);
+      return response.data.appointments || [];
+    },
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+  });
+};
+
 export const useUpdateUserStatus = () => {
   const queryClient = useQueryClient();
 
@@ -104,11 +277,36 @@ export const useDeleteUser = () => {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'stats'] });
       toast.success('User deleted successfully');
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Failed to delete user');
     },
+  });
+};
+
+// ----- Audit Logs -----
+export const useAuditLogs = (params?: {
+  page?: number;
+  limit?: number;
+  adminId?: string;
+  action?: string;
+  targetType?: string;
+  startDate?: string;
+  endDate?: string;
+}) => {
+  return useQuery({
+    queryKey: ['admin', 'audit-logs', params],
+    queryFn: async () => {
+      const response = await adminAPI.getAuditLogs(params);
+      return {
+        logs: response.data.data || [],
+        pagination: response.data.pagination
+      };
+    },
+    staleTime: 1 * 60 * 1000, // 1 minute
+    retry: false,
   });
 };
 

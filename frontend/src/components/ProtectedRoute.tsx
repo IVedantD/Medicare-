@@ -30,9 +30,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    // Redirect to appropriate dashboard based on role
-    const dashboardPath = getDashboardPath(user.role);
-    return <Navigate to={dashboardPath} replace />;
+    // Redirect to unauthorized page if role doesn't match
+    return <Navigate to="/unauthorized" replace />;
   }
 
   return <>{children}</>;

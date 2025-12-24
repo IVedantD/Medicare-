@@ -69,15 +69,25 @@ export const useCreateAppointment = () => {
       time: string;
       reason: string;
     }) => {
+      console.log('[useCreateAppointment] Creating appointment:', data);
       const response = await appointmentsAPI.create(data);
-      return response.data as Appointment;
+      console.log('[useCreateAppointment] Success:', response.data);
+      // Handle both response formats
+      return (response.data?.appointment || response.data) as Appointment;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      toast.success('Appointment booked successfully!');
+      console.log('[useCreateAppointment] Appointment created successfully');
+      // Invalidate queries without awaiting
+      queryClient.invalidateQueries({ queryKey: ['appointments'] }).catch(() => {});
+      queryClient.invalidateQueries({ queryKey: ['my-appointments'] }).catch(() => {});
     },
     onError: (error: any) => {
-      toast.error(error.response?.data?.message || 'Failed to book appointment');
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to book appointment';
+      console.error('[useCreateAppointment] Error details:', {
+        message: errorMessage,
+        status: error.response?.status,
+        data: error.response?.data
+      });
     },
   });
 };
@@ -149,6 +159,59 @@ export const useAddPrescription = () => {
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Failed to add prescription');
     },
+  });
+};
+
+export const useRescheduleAppointment = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      date,
+      time,
+    }: {
+      id: string;
+      date: string;
+      time: string;
+    }) => {
+      const response = await appointmentsAPI.reschedule(id, { date, time });
+      return response.data as Appointment;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      toast.success('Appointment rescheduled successfully');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Failed to reschedule appointment');
+    },
+  });
+};
+
+export const useAllAppointments = (params?: {
+  status?: string;
+  doctorId?: string;
+  date?: string;
+  startDate?: string;
+  endDate?: string;
+}) => {
+  return useQuery({
+    queryKey: ['appointments', 'admin', 'all', params],
+    queryFn: async () => {
+      try {
+        const response = await appointmentsAPI.getAllAppointments(params);
+        return response.data.appointments as Appointment[];
+      } catch (error: any) {
+        if (error.code === 'ERR_NETWORK' || error.code === 'ECONNREFUSED') {
+          console.warn('API not available, returning empty appointments list');
+          return [] as Appointment[];
+        }
+        throw error;
+      }
+    },
+    staleTime: 2 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 };
 

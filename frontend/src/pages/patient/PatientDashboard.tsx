@@ -15,16 +15,29 @@ import {
 import { useMyAppointments } from '@/hooks/useAppointments';
 import { useDoctors } from '@/hooks/useDoctors';
 import { useMyMedicalRecords } from '@/hooks/useMedicalRecords';
+import { usePatientDashboard } from '@/hooks/useDashboard';
 import { StatCardSkeleton, CardSkeleton, DoctorCardSkeleton } from '@/components/LoadingSkeleton';
 import { format } from 'date-fns';
 
 const PatientDashboard: React.FC = () => {
   const { user } = useAuth();
+  const { data: dashboardData, isLoading: dashboardLoading } = usePatientDashboard();
   const { data: appointments = [], isLoading: appointmentsLoading } = useMyAppointments({ status: 'pending' });
   const { data: doctors = [], isLoading: doctorsLoading } = useDoctors();
   const { data: records = [], isLoading: recordsLoading } = useMyMedicalRecords();
 
+  // Use dashboard API data if available, otherwise fallback to existing hooks
   const upcomingAppointments = useMemo(() => {
+    if (dashboardData?.upcomingAppointments && dashboardData.upcomingAppointments.length > 0) {
+      return dashboardData.upcomingAppointments.slice(0, 2).map(apt => ({
+        id: apt.id,
+        doctorName: apt.doctorName || 'Doctor',
+        date: apt.date ? format(new Date(apt.date), 'MMM dd, yyyy') : '',
+        time: apt.time,
+        status: apt.status as 'pending' | 'approved',
+        reason: apt.reason,
+      }));
+    }
     return appointments
       .filter(apt => ['pending', 'approved'].includes(apt.status))
       .slice(0, 2)
@@ -36,7 +49,7 @@ const PatientDashboard: React.FC = () => {
         status: apt.status as 'pending' | 'approved',
         reason: apt.reason,
       }));
-  }, [appointments]);
+  }, [dashboardData, appointments]);
 
   const recommendedDoctors = useMemo(() => {
     return doctors.slice(0, 2).map(doctor => ({
@@ -51,6 +64,21 @@ const PatientDashboard: React.FC = () => {
   }, [doctors]);
 
   const stats = useMemo(() => {
+    // Use dashboard API stats if available
+    if (dashboardData?.stats) {
+      const nextDate = dashboardData.stats.nextAppointment 
+        ? format(new Date(dashboardData.stats.nextAppointment.date), 'MMM dd')
+        : 'None';
+      return {
+        upcoming: dashboardData.stats.totalUpcoming,
+        nextDate,
+        records: dashboardData.stats.totalRecords,
+        lastRecordDate: records[0] ? format(new Date(records[0].createdAt), 'MMM dd') : 'None',
+        prescriptions: records.filter(r => r.prescription && r.prescription.length > 0).length,
+        totalVisits: dashboardData.stats.totalCompleted,
+      };
+    }
+    // Fallback to existing logic
     const upcomingCount = appointments.filter(apt => ['pending', 'approved'].includes(apt.status)).length;
     const nextAppointment = appointments
       .filter(apt => ['pending', 'approved'].includes(apt.status))
@@ -64,7 +92,7 @@ const PatientDashboard: React.FC = () => {
       prescriptions: records.filter(r => r.prescription && r.prescription.length > 0).length,
       totalVisits: appointments.filter(apt => apt.status === 'completed').length,
     };
-  }, [appointments, records]);
+  }, [dashboardData, appointments, records]);
 
   return (
     <DashboardLayout title="Dashboard">
@@ -79,7 +107,7 @@ const PatientDashboard: React.FC = () => {
       </div>
 
       {/* Stats Grid */}
-      {appointmentsLoading || recordsLoading ? (
+      {dashboardLoading || appointmentsLoading || recordsLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCardSkeleton count={4} />
         </div>

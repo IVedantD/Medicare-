@@ -84,11 +84,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
             
             <div className="hidden sm:flex items-center gap-3 pl-4 border-l">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
-                {user?.name.charAt(0).toUpperCase()}
+                {(user?.name || user?.email || 'U').charAt(0).toUpperCase()}
               </div>
               <div className="hidden lg:block">
-                <p className="text-sm font-medium">{user?.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{user?.role}</p>
+                <p className="text-sm font-medium">{user?.name || user?.email || 'User'}</p>
+                <p className="text-xs text-muted-foreground capitalize">{user?.role || 'user'}</p>
               </div>
             </div>
           </div>

@@ -11,10 +11,13 @@ exports.getAllDoctors = async (req, res) => {
     const { specialization, search } = req.query;
 
     // Build query
+    // In development, show all active doctors (verified or not)
+    // In production, you may want to only show verified doctors
     const query = { 
       role: 'doctor',
-      isActive: true,
-      verified: true // Only show verified doctors
+      isActive: true
+      // Note: verified: true filter removed to show all doctors
+      // Add back if you only want verified doctors: verified: true
     };
 
     // Filter by specialization
@@ -32,7 +35,7 @@ exports.getAllDoctors = async (req, res) => {
     }
 
     const doctors = await User.find(query)
-      .select('-password -email')
+      .select('-password')
       .sort({ name: 1 });
 
     // Format doctors for frontend
@@ -51,6 +54,8 @@ exports.getAllDoctors = async (req, res) => {
       phone: doctor.phone || ''
     }));
 
+    console.log(`[DOCTORS API] Found ${formattedDoctors.length} doctor(s)`);
+    
     res.json(formattedDoctors);
   } catch (error) {
     console.error('Get doctors error:', error);
@@ -181,19 +186,90 @@ exports.getDoctorAvailability = async (req, res) => {
 };
 
 /**
+ * Get Current Doctor Availability (for doctors)
+ * GET /api/doctors/availability
+ * Requires authentication (doctor role)
+ */
+exports.getCurrentAvailability = async (req, res) => {
+  try {
+    const doctorId = req.user.id;
+    const Availability = require('../models/Availability');
+
+    let availability = await Availability.findOne({ doctorId });
+
+    // If no availability exists, return empty schedule
+    if (!availability) {
+      return res.json({
+        success: true,
+        schedule: {}
+      });
+    }
+
+    // Convert Map to plain object for JSON response
+    const scheduleObj = {};
+    availability.schedule.forEach((slots, day) => {
+      scheduleObj[day] = slots;
+    });
+
+    res.json({
+      success: true,
+      schedule: scheduleObj
+    });
+  } catch (error) {
+    console.error('Get current availability error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch availability'
+    });
+  }
+};
+
+/**
  * Update Doctor Availability (for doctors)
  * PUT /api/doctors/availability
  * Requires authentication (doctor role)
  */
 exports.updateAvailability = async (req, res) => {
   try {
-    // This is a placeholder - in a real system, you'd store availability slots
-    // For now, we'll just return success
-    // Future: Create an Availability model to store doctor schedules
+    const doctorId = req.user.id;
+    const { schedule } = req.body; // Expecting { schedule: { Monday: [...], Tuesday: [...], ... } }
+
+    if (!schedule || typeof schedule !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Schedule is required and must be an object'
+      });
+    }
+
+    const Availability = require('../models/Availability');
+
+    // Convert plain object to Map
+    const scheduleMap = new Map();
+    Object.keys(schedule).forEach(day => {
+      if (Array.isArray(schedule[day])) {
+        scheduleMap.set(day, schedule[day]);
+      }
+    });
+
+    // Upsert availability
+    const availability = await Availability.findOneAndUpdate(
+      { doctorId },
+      { schedule: scheduleMap },
+      { new: true, upsert: true }
+    );
+
+    // Convert Map to plain object for JSON response
+    const scheduleObj = {};
+    if (availability.schedule && availability.schedule instanceof Map) {
+      availability.schedule.forEach((slots, day) => {
+        scheduleObj[day] = slots;
+      });
+    }
 
     res.json({
       success: true,
-      message: 'Availability updated successfully'
+      message: 'Availability updated successfully',
+      schedule: scheduleObj
     });
   } catch (error) {
     console.error('Update availability error:', error);

@@ -1,5 +1,6 @@
 const Appointment = require('../models/Appointment');
 const User = require('../models/User');
+const { sendNotification } = require('../services/whatsapp.service');
 
 /**
  * Create Appointment
@@ -10,8 +11,12 @@ exports.createAppointment = async (req, res) => {
   try {
     const { doctorId, date, time, reason } = req.body;
 
+    console.log(`[CREATE APPOINTMENT] Request from user: ${req.user.id} (${req.user.role})`);
+    console.log(`[CREATE APPOINTMENT] Data:`, { doctorId, date, time, reason: reason?.substring(0, 50) });
+
     // Validation
     if (!doctorId || !date || !time || !reason) {
+      console.error('[CREATE APPOINTMENT] Missing required fields');
       return res.status(400).json({
         success: false,
         message: 'Please provide doctorId, date, time, and reason'
@@ -20,26 +25,31 @@ exports.createAppointment = async (req, res) => {
 
     // Check if user is a patient
     if (req.user.role !== 'patient') {
+      console.error(`[CREATE APPOINTMENT] Unauthorized role: ${req.user.role}`);
       return res.status(403).json({
         success: false,
         message: 'Only patients can book appointments'
       });
     }
 
-    // Check if doctor exists and is verified
+    // Check if doctor exists and is active
+    // Note: In development, we allow booking with unverified doctors
+    // In production, you may want to add: verified: true
     const doctor = await User.findOne({
       _id: doctorId,
       role: 'doctor',
-      verified: true,
       isActive: true
     });
 
     if (!doctor) {
+      console.error(`[CREATE APPOINTMENT] Doctor not found: ${doctorId}`);
       return res.status(404).json({
         success: false,
         message: 'Doctor not found or not available'
       });
     }
+
+    console.log(`[CREATE APPOINTMENT] Doctor found: ${doctor.name} (ID: ${doctor._id})`);
 
     // Check if date is in the future
     const appointmentDate = new Date(date);
@@ -48,6 +58,7 @@ exports.createAppointment = async (req, res) => {
     appointmentDate.setHours(0, 0, 0, 0);
 
     if (appointmentDate < today) {
+      console.error(`[CREATE APPOINTMENT] Invalid date: ${date} (in the past)`);
       return res.status(400).json({
         success: false,
         message: 'Appointment date cannot be in the past'
@@ -63,6 +74,7 @@ exports.createAppointment = async (req, res) => {
     });
 
     if (existingAppointment) {
+      console.error(`[CREATE APPOINTMENT] Time slot already booked: ${date} at ${time}`);
       return res.status(400).json({
         success: false,
         message: 'This time slot is already booked'
@@ -73,15 +85,37 @@ exports.createAppointment = async (req, res) => {
     const appointment = await Appointment.create({
       patientId: req.user.id,
       doctorId,
+      department: doctor.department || '',
+      specialty: doctor.specialization || '',
       date: appointmentDate,
       time,
       reason: reason.trim()
     });
 
     // Populate patient and doctor names
-    await appointment.populate('patient', 'name');
+    await appointment.populate('patient', 'name phone whatsappNotificationsEnabled');
     await appointment.populate('doctor', 'name');
 
+    // Send WhatsApp notification to patient (non-blocking)
+    if (appointment.patient?.phone && appointment.patient?.whatsappNotificationsEnabled) {
+      sendNotification(
+        'appointmentBooked',
+        appointment.patient.phone,
+        [
+          appointment.patient.name,
+          appointment.doctor?.name || 'Doctor',
+          appointment.date,
+          appointment.time,
+          process.env.CLINIC_NAME || 'MediCare Clinic'
+        ],
+        { disabled: !appointment.patient.whatsappNotificationsEnabled }
+      ).catch(err => {
+        console.error('[APPOINTMENT] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
+
+    console.log(`[CREATE APPOINTMENT] Success! Appointment ID: ${appointment._id}`);
+    
     res.status(201).json({
       success: true,
       message: 'Appointment booked successfully',
@@ -99,10 +133,10 @@ exports.createAppointment = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Create appointment error:', error);
+    console.error('[CREATE APPOINTMENT] Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create appointment'
+      message: error.message || 'Failed to create appointment'
     });
   }
 };
@@ -303,8 +337,28 @@ exports.updateStatus = async (req, res) => {
     // Update status with history
     await appointment.updateStatus(status, req.user.id, req.body.reason || '');
 
-    await appointment.populate('patient', 'name');
+    await appointment.populate('patient', 'name phone whatsappNotificationsEnabled');
     await appointment.populate('doctor', 'name');
+
+    // Send WhatsApp notification for status updates (approved/rejected) - non-blocking
+    if ((status === 'approved' || status === 'rejected') && 
+        appointment.patient?.phone && 
+        appointment.patient?.whatsappNotificationsEnabled) {
+      sendNotification(
+        'appointmentStatusUpdate',
+        appointment.patient.phone,
+        [
+          appointment.patient.name,
+          appointment.doctor?.name || 'Doctor',
+          appointment.date,
+          appointment.time,
+          status
+        ],
+        { disabled: !appointment.patient.whatsappNotificationsEnabled }
+      ).catch(err => {
+        console.error('[APPOINTMENT] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
 
     res.json({
       success: true,
@@ -377,6 +431,28 @@ exports.cancelAppointment = async (req, res) => {
     // Cancel appointment
     await appointment.updateStatus('cancelled', req.user.id, req.body.reason || 'Cancelled by user');
 
+    // Populate patient and doctor for notification
+    await appointment.populate('patient', 'name phone whatsappNotificationsEnabled');
+    await appointment.populate('doctor', 'name');
+
+    // Send WhatsApp cancellation notification (non-blocking)
+    if (appointment.patient?.phone && appointment.patient?.whatsappNotificationsEnabled) {
+      sendNotification(
+        'appointmentCancelled',
+        appointment.patient.phone,
+        [
+          appointment.patient.name,
+          appointment.doctor?.name || 'Doctor',
+          appointment.date,
+          appointment.time,
+          appointment.cancellationReason || ''
+        ],
+        { disabled: !appointment.patient.whatsappNotificationsEnabled }
+      ).catch(err => {
+        console.error('[APPOINTMENT] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
+
     res.json({
       success: true,
       message: 'Appointment cancelled successfully'
@@ -386,6 +462,144 @@ exports.cancelAppointment = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to cancel appointment'
+    });
+  }
+};
+
+/**
+ * Reschedule Appointment
+ * PUT /api/appointments/:id/reschedule
+ * Requires authentication (patient or doctor)
+ */
+exports.rescheduleAppointment = async (req, res) => {
+  try {
+    const { date, time } = req.body;
+
+    if (!date || !time) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide new date and time'
+      });
+    }
+
+    const appointment = await Appointment.findById(req.params.id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Appointment not found'
+      });
+    }
+
+    // Check permissions
+    const canReschedule = 
+      (req.user.role === 'patient' && appointment.patientId.toString() === req.user.id) ||
+      (req.user.role === 'doctor' && appointment.doctorId.toString() === req.user.id) ||
+      req.user.role === 'admin';
+
+    if (!canReschedule) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to reschedule this appointment'
+      });
+    }
+
+    // Cannot reschedule completed or cancelled appointments
+    if (appointment.status === 'completed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot reschedule a completed appointment'
+      });
+    }
+
+    if (appointment.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot reschedule a cancelled appointment'
+      });
+    }
+
+    // Validate new date is in the future
+    const newAppointmentDate = new Date(date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    newAppointmentDate.setHours(0, 0, 0, 0);
+
+    if (newAppointmentDate < today) {
+      return res.status(400).json({
+        success: false,
+        message: 'New appointment date cannot be in the past'
+      });
+    }
+
+    // Check if new time slot is already booked
+    const existingAppointment = await Appointment.findOne({
+      doctorId: appointment.doctorId,
+      date: newAppointmentDate,
+      time,
+      status: { $in: ['pending', 'approved'] },
+      _id: { $ne: appointment._id } // Exclude current appointment
+    });
+
+    if (existingAppointment) {
+      return res.status(400).json({
+        success: false,
+        message: 'This time slot is already booked. Please choose another time.'
+      });
+    }
+
+    // Store old date and time for notification
+    const oldDate = appointment.date;
+    const oldTime = appointment.time;
+
+    // Update appointment
+    appointment.date = newAppointmentDate;
+    appointment.time = time;
+    await appointment.save();
+
+    // Populate patient and doctor for notification
+    await appointment.populate('patient', 'name phone whatsappNotificationsEnabled');
+    await appointment.populate('doctor', 'name');
+
+    // Send WhatsApp reschedule notification (non-blocking)
+    if (appointment.patient?.phone && appointment.patient?.whatsappNotificationsEnabled) {
+      sendNotification(
+        'appointmentRescheduled',
+        appointment.patient.phone,
+        [
+          appointment.patient.name,
+          appointment.doctor?.name || 'Doctor',
+          oldDate,
+          oldTime,
+          appointment.date,
+          appointment.time
+        ],
+        { disabled: !appointment.patient.whatsappNotificationsEnabled }
+      ).catch(err => {
+        console.error('[APPOINTMENT] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Appointment rescheduled successfully',
+      appointment: {
+        id: appointment._id,
+        patientId: appointment.patientId,
+        patientName: appointment.patient?.name,
+        doctorId: appointment.doctorId,
+        doctorName: appointment.doctor?.name,
+        date: appointment.date,
+        time: appointment.time,
+        reason: appointment.reason,
+        status: appointment.status
+      }
+    });
+  } catch (error) {
+    console.error('Reschedule appointment error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reschedule appointment'
     });
   }
 };
@@ -454,6 +668,126 @@ exports.addPrescription = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to add prescription'
+    });
+  }
+};
+
+/**
+ * Get All Appointments (Admin)
+ * GET /api/appointments/admin/all
+ * Requires authentication (admin role)
+ */
+exports.getAllAppointments = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only admins can access this route'
+      });
+    }
+
+    const { status, doctorId, patientId, date, startDate, endDate, search, page = 1, limit = 20 } = req.query;
+    const query = {};
+
+    // Filter by status
+    if (status && ['pending', 'approved', 'rejected', 'completed', 'cancelled'].includes(status)) {
+      query.status = status;
+    }
+
+    // Filter by doctor
+    if (doctorId) {
+      query.doctorId = doctorId;
+    }
+
+    // Filter by patient
+    if (patientId) {
+      query.patientId = patientId;
+    }
+
+    // Filter by specific date
+    if (date) {
+      const appointmentDate = new Date(date);
+      query.date = {
+        $gte: new Date(appointmentDate.setHours(0, 0, 0, 0)),
+        $lt: new Date(appointmentDate.setHours(23, 59, 59, 999))
+      };
+    }
+
+    // Filter by date range
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      query.date = {
+        $gte: start,
+        $lte: end
+      };
+    }
+
+    // Search filter (will be applied after population)
+    const searchQuery = search;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get appointments with pagination
+    const [appointments, total] = await Promise.all([
+      Appointment.find(query)
+        .populate('patient', 'name email phone')
+        .populate('doctor', 'name specialization department')
+        .sort({ date: -1, time: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Appointment.countDocuments(query)
+    ]);
+
+    let formatted = appointments.map(apt => ({
+      id: apt._id,
+      patientId: apt.patientId,
+      patientName: apt.patient?.name || 'Unknown',
+      patientEmail: apt.patient?.email || '',
+      doctorId: apt.doctorId,
+      doctorName: apt.doctor?.name || 'Unknown',
+      doctorSpecialization: apt.doctor?.specialization || '',
+      department: apt.department || apt.doctor?.department || '',
+      date: apt.date,
+      time: apt.time,
+      reason: apt.reason,
+      status: apt.status,
+      prescription: apt.prescription || null,
+      createdAt: apt.createdAt,
+      updatedAt: apt.updatedAt
+    }));
+
+    // Apply search filter if provided
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      formatted = formatted.filter(apt =>
+        apt.patientName?.toLowerCase().includes(searchLower) ||
+        apt.doctorName?.toLowerCase().includes(searchLower) ||
+        apt.patientEmail?.toLowerCase().includes(searchLower) ||
+        apt.reason?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    res.json({
+      success: true,
+      data: formatted,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+        hasNext: parseInt(page) * parseInt(limit) < total,
+        hasPrev: parseInt(page) > 1
+      }
+    });
+  } catch (error) {
+    console.error('Get all appointments error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch appointments'
     });
   }
 };

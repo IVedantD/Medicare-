@@ -14,15 +14,29 @@ import {
 } from 'lucide-react';
 import { useDoctorAppointments } from '@/hooks/useAppointments';
 import { usePatients } from '@/hooks/usePatients';
+import { useDoctorDashboard } from '@/hooks/useDashboard';
 import { StatCardSkeleton, CardSkeleton } from '@/components/LoadingSkeleton';
 import { format, isToday, parseISO } from 'date-fns';
 
 const DoctorDashboard: React.FC = () => {
   const { user } = useAuth();
+  const { data: dashboardData, isLoading: dashboardLoading } = useDoctorDashboard();
   const { data: appointments = [], isLoading: appointmentsLoading } = useDoctorAppointments();
   const { data: patients = [], isLoading: patientsLoading } = usePatients();
 
   const todayAppointments = useMemo(() => {
+    // Use dashboard API data if available
+    if (dashboardData?.todayAppointments && dashboardData.todayAppointments.length > 0) {
+      return dashboardData.todayAppointments.slice(0, 3).map(apt => ({
+        id: apt.id,
+        patientName: apt.patientName || 'Patient',
+        date: 'Today',
+        time: apt.time,
+        status: apt.status as 'pending' | 'approved' | 'completed',
+        reason: apt.reason,
+      }));
+    }
+    // Fallback to existing logic
     const today = appointments.filter(apt => {
       if (!apt.date) return false;
       try {
@@ -40,7 +54,7 @@ const DoctorDashboard: React.FC = () => {
       status: apt.status as 'pending' | 'approved' | 'completed',
       reason: apt.reason,
     }));
-  }, [appointments]);
+  }, [dashboardData, appointments]);
 
   const pendingRequests = useMemo(() => {
     return appointments
@@ -57,6 +71,19 @@ const DoctorDashboard: React.FC = () => {
   }, [appointments]);
 
   const stats = useMemo(() => {
+    // Use dashboard API stats if available
+    if (dashboardData?.stats) {
+      return {
+        todayCount: dashboardData.stats.todayCount,
+        pendingCount: dashboardData.stats.pendingCount,
+        totalPatients: dashboardData.stats.totalPatients,
+        newPatients: 0, // This would come from API
+        pendingRequests: dashboardData.stats.totalPendingRequests,
+        completedToday: dashboardData.stats.completedCount,
+        remainingToday: dashboardData.stats.approvedCount + dashboardData.stats.pendingCount,
+      };
+    }
+    // Fallback to existing logic
     const today = appointments.filter(apt => {
       if (!apt.date) return false;
       try {
@@ -75,7 +102,7 @@ const DoctorDashboard: React.FC = () => {
       completedToday: today.filter(apt => apt.status === 'completed').length,
       remainingToday: today.filter(apt => ['pending', 'approved'].includes(apt.status)).length,
     };
-  }, [appointments, patients]);
+  }, [dashboardData, appointments, patients]);
 
   const handleAppointmentAction = (id: string, action: string) => {
     console.log(`${action} appointment ${id}`);
@@ -94,7 +121,7 @@ const DoctorDashboard: React.FC = () => {
       </div>
 
       {/* Stats Grid */}
-      {appointmentsLoading || patientsLoading ? (
+      {dashboardLoading || appointmentsLoading || patientsLoading ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCardSkeleton count={4} />
         </div>
