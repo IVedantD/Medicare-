@@ -416,6 +416,29 @@ Your appointment is in 1 hour. Please arrive 10 minutes early.
 See you soon!
 
 MediCare Team`;
+  },
+
+  /**
+   * Password changed notification
+   */
+  passwordChanged: (userName, changeTime) => {
+    const time = new Date(changeTime).toLocaleString('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+
+    return `🔐 Password Changed - MediCare
+
+Hello ${userName},
+
+Your MediCare account password was successfully changed on ${time}.
+
+If you did not make this change, please contact us immediately for security assistance.
+
+For support: ${process.env.SUPPORT_PHONE || '+91 XXXXX XXXXX'}
+
+MediCare Security Team`;
   }
 };
 

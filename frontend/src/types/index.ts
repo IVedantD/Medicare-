@@ -15,6 +15,14 @@ export interface User {
   verified?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  profileImage?: string;
+  address?: string;
+  dateOfBirth?: string;
+  emergencyContact?: string;
+  emergencyPhone?: string;
+  bloodGroup?: string;
+  allergies?: string;
+  medicalHistory?: string;
 }
 
 export interface Doctor {

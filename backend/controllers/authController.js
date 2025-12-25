@@ -579,11 +579,102 @@ const logout = async (req, res) => {
   }
 };
 
+/**
+ * Change User Password
+ * POST /api/auth/change-password
+ * Requires authentication
+ */
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Validation - Required fields
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide current password and new password'
+      });
+    }
+
+    // Validate new password strength
+    if (!isStrongPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 8 characters and contain uppercase, lowercase, number, and special character'
+      });
+    }
+
+    // Check if new password is different from current password
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be different from current password'
+      });
+    }
+
+    // Find user and include password for comparison
+    const user = await User.findById(req.user.id).select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    console.log(`[CHANGE_PASSWORD] Password changed successfully for user: ${user.email}`);
+
+    // Send WhatsApp notification about password change (non-blocking)
+    if (user.phone && user.whatsappNotificationsEnabled) {
+      sendNotification('passwordChanged', user.phone, [user.name, new Date()], {
+        disabled: !user.whatsappNotificationsEnabled
+      }).catch(err => {
+        console.error('[CHANGE_PASSWORD] WhatsApp notification error (non-blocking):', err.message);
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: messages.join(', ')
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to change password. Please try again.'
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
   getProfile,
   updateProfile,
-  logout
+  logout,
+  changePassword
 };
 

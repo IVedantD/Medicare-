@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { DashboardSidebar } from './DashboardSidebar';
 import { Button } from '@/components/ui/button';
-import { Menu, X, Bell, Search } from 'lucide-react';
+import { Menu, X, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -77,10 +78,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 
           {/* Right Side */}
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="h-5 w-5" />
-              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
-            </Button>
+            <NotificationDropdown />
             
             <div className="hidden sm:flex items-center gap-3 pl-4 border-l">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold">
