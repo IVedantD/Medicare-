@@ -3,7 +3,7 @@ import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 
 // Base API URL - MERN Backend Integration
 // Set VITE_API_URL in .env file for production
 // Default: http://localhost:5000/api (Express backend)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://medicare-y2dm.onrender.com';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
